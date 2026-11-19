@@ -1,14 +1,119 @@
-# First run on the DGX Spark: a checklist
+# AI Studio on the DGX Spark: first run and release checks
 
-This is the part I could not do from my sandbox: build the image and run the real model on the
-Spark's GPU. Work through it in order; each step says what "good" looks like. Steps 1–8 get you to
-a first image. Steps 9–13 measure the things the design left open (§18 of `DESIGN.md`).
+This is the checklist for what only your Spark can show: building the image, running the real models on its
+GPU, and judging by eye and ear what comes out. The automated tests run against a fake pipeline with no GPU
+(the README's Status table says so), so everything here is yours to try, on the Spark.
 
-Run everything **on the Spark, as your normal user** (not `sudo`, not root), in a terminal or over
-SSH. Where a step says "note", write the number down: it goes into the report at the end.
+The file is cumulative. It began as the first-run checklist and gained one section for each release since,
+and **a section number never changes**: the README, `docs/DESIGN.md`, `.env.example` and the code cite sections by
+number ("section 34 (f)"), and so does the numbered list at the end. A new section is added at the end of the
+numbered ones, whatever release it belongs to.
+
+**How to use it.** **Part 1** (sections 1 to 13) is the first run: clone, build, start, make a first image, measure
+the memory. Do it once, in order. **Part 2** (sections 14 to 38) is one section per release: after an update, do the
+sections for the releases you have not checked yet. Run everything on the Spark, as your normal user (not `sudo`,
+not root), in a terminal or over SSH. For where the project itself stands (what is built, what is only specified),
+read "Status at a glance" at the top of `docs/DESIGN.md`.
 
 > Never paste tokens, passwords or SSH keys into a chat. Put `HF_TOKEN` in `.env` on the Spark if
 > it's ever needed, and nowhere else.
+
+### Status of each section
+
+The status column is only what you told me on 2026-11-17: sections 1 to 36 you have tried, and section 37 is the one you
+know has not been run. It records no results; the numbers you measure are the ones the "What to send back" list at the end asks for.
+
+| § | Section | Release | What it checks | Status |
+|---|---|---|---|---|
+| 1 | Get the code | 1.0 | cloning the repository | Tried by you (your word, 2026-11-17) |
+| 2 | Check Docker and the GPU | 1.0 | Docker without `sudo`; the GB10 is visible to containers | Tried by you (your word, 2026-11-17) |
+| 3 | Note the memory picture before anything loads | 1.0 | free memory, and what else is running | Tried by you (your word, 2026-11-17) |
+| 4 | Prepare the settings and folders | 1.0 | `.env`; who owns `data/` and the model cache | Tried by you (your word, 2026-11-17) |
+| 5 | Build the image | 1.0 | the build and its `check_image` self-check | Tried by you (your word, 2026-11-17) |
+| 6 | Start it | 1.0 | a healthy container; the start-up log | Tried by you (your word, 2026-11-17) |
+| 7 | Open the page | 1.0 | the page loads; the model pill names the GB10 | Tried by you (your word, 2026-11-17) |
+| 8 | First image: small and quick | 1.0 | first model download and load; one image | Tried by you (your word, 2026-11-17) |
+| 9 | Measure the memory footprint | 1.0 | what the loaded model costs; sets `STUDIO_MIN_FREE_GB` | Tried by you (your word, 2026-11-17) |
+| 10 | The everyday features | 1.0 | batch, Reuse, transparency, queue, phone | Tried by you (your word, 2026-11-17) |
+| 11 | Idle unload gives the memory back | 1.0 | memory returns after the idle timeout | Tried by you (your word, 2026-11-17) |
+| 12 | The memory check fails fast | 1.0 | too little free memory fails at once, with a way out | Tried by you (your word, 2026-11-17) |
+| 13 | History survives the container | 1.0 | history after `down` and `up` | Tried by you (your word, 2026-11-17) |
+| 14 | Cancel, Keep and automatic clean-up | 1.1 | Cancel, Keep, expiry | Tried by you (your word, 2026-11-17) |
+| 15 | Editing with several images, through the API | 1.2 | the first real-model edits, from a terminal | Tried by you (your word, 2026-11-17) |
+| 16 | Scale, Draft and thumbnails | 1.3 | scale picker, Draft, thumbnails | Tried by you (your word, 2026-11-17) |
+| 17 | Regenerate larger | 1.4 and 1.5 | Regenerate larger, on the card and in the viewer | Tried by you (your word, 2026-11-17) |
+| 18 | Editing on the page, and the Spark test for edits | 1.6 | edit times and memory; "image N"; masks | Tried by you (your word, 2026-11-17) |
+| 19 | Load model and Unload model | 1.7 | the header buttons; load time; memory given back | Tried by you (your word, 2026-11-17) |
+| 20 | Music: the model, from a terminal and through the API | 1.8 and 1.9 | the real music model; its speed and memory; the Music tab | Tried by you (your word, 2026-11-17) |
+| 21 | Make 4K, and the upscaler probe | 1.10 | Make 4K; whether an upscaler runs on the GPU | Tried by you (your word, 2026-11-17) |
+| 22 | Enlarge: the same picture, bigger and sharper | 1.11 | Enlarge with a model file; waiting for the GPU | Tried by you (your word, 2026-11-17) |
+| 23 | The Kept view, and Enlarge waiting its turn | 1.12 | the Kept filter | Tried by you (your word, 2026-11-17) |
+| 24 | The bin | 1.13 | Deleted, Restore, Empty bin; database schema 4 | Tried by you (your word, 2026-11-17) |
+| 25 | Project folders | 1.14 | projects; database schema 5 | Tried by you (your word, 2026-11-17) |
+| 26 | Deleting one picture | 1.15 | one picture to the bin; database schema 6 | Tried by you (your word, 2026-11-17) |
+| 27 | The default size, 16:9 | 1.16 | the new default; time and memory against the old square | Tried by you (your word, 2026-11-17) |
+| 28 | Vector | 1.17 | the Vector tab on real pictures; the laser software; schema 7 | Tried by you (your word, 2026-11-17) |
+| 29 | Vector versions, the stack view, and pictures by paste | 1.18 | versions, depth stack, paste; eight-picture edits; schema 8 | Tried by you (your word, 2026-11-17) |
+| 30 | The Prompt builder, with your Ollama | 1.19 | the builder with your Ollama; schema 9 | Tried by you (your word, 2026-11-17) |
+| 31 | The Speech tab: four voice engines, on your Spark | 1.20 | the four real voice engines; schema 10 | Tried by you (your word, 2026-11-17) |
+| 32 | Load progress: watch a real download | 1.21 | the download and load progress shown | Tried by you (your word, 2026-11-17) |
+| 33 | Reorder the queue | 1.22 | dragging queued jobs; a thumb on a phone | Tried by you (your word, 2026-11-17) |
+| 34 | More like this, compare, and the experiment for variations of a picture | 1.24 | More like this; compare; the variations experiment; schema 11 | Tried by you (your word, 2026-11-17) |
+| 35 | Audiobook polish for Speech | 1.25 | respellings, several voices, chapter marks, the M4B; schema 12 | Tried by you (your word, 2026-11-17) |
+| 36 | Search and tags across history | 1.26 | search, filters, Suggest with your Ollama; schema 13 | Tried by you (your word, 2026-11-17) |
+| 37 | LTX-2.5 on your Spark: the experiment before the Video tab | 1.27 | whether LTX-2.5 runs here, how long a clip can be | Not yet run |
+| 38 | Vector quality: thin lines are kept and widened | 1.23 | the Vector clean-up keeps thin lines | Not yet run (added 2026-11-17) |
+
+**Keeping this file current.** When a release adds a section, give it the next unused number (do not insert it in
+the middle and do not renumber), add a row for it to the table above with the release and "Not yet run", and add its
+item at the end of "What to send back". When you tell me you have tried a section, change that row's status to
+"Tried by you (your word, <date>)" and nothing stronger; numbers you send back are not recorded in the status column.
+
+---
+
+# Part 1: First run (sections 1 to 13)
+
+**How to read a section.** Each step says what "Good" looks like. Where it says "note" or "write down", write the
+number down: it goes into the report at the end ("What to send back"). Where a step says "see Troubleshooting", the
+table is [at the end of the file](#troubleshooting).
+
+**Settings you may want.** Everything is set in `.env` (copied from `.env.example` in step 4), and `docker compose up -d`
+applies a change. The defaults below are the ones in `.env.example`. The last column says which step or section
+needs the setting. The rest of the file's settings are limits and file locations that have good defaults, and each is explained
+next to its line in `.env.example`. Vector has no setting in `.env`: its options are on the form, for each run.
+
+| Setting | Default | What it does | Used in |
+|---|---|---|---|
+| `STUDIO_UID`, `STUDIO_GID` | 1000, 1000 | The user the container runs as. Set them to `id -u` and `id -g`, so that `./data` and the model cache stay yours | step 4 |
+| `STUDIO_BIND` | `0.0.0.0` | The address the page listens on. `127.0.0.1` keeps it off your LAN (an SSH tunnel or NVIDIA Sync only) | steps 4 and 7 |
+| `STUDIO_PORT` | `8081` | The port on the Spark that you open in the browser; the container's own `8080` never changes. A `.env` from before 1.20 may still say `8080`: change it | step 7, Troubleshooting |
+| `STUDIO_ALLOWED_HOSTS` | empty (accept any) | A guard against DNS-rebinding: the names or addresses you browse to, comma-separated (`spark-1a2b.local,192.168.1.20`); `localhost` always works. A request for any other name is refused | step 4 |
+| `HF_CACHE_DIR` | not set (`~/.cache/huggingface`) | The folder on the Spark that holds the Hugging Face cache; the container sees it as `/models` | steps 4 and 8 |
+| `HF_TOKEN` | empty | Only if a model repository is gated or private | Troubleshooting |
+| `NGC_TAG` | `25.10-py3` | Which NVIDIA PyTorch release the image is built on; change it only if the self-check or the GPU says to | step 5, Troubleshooting |
+| `STUDIO_MIN_FREE_GB` | 40 | Refuse to load the image model unless this many GB are free (`MemAvailable`). 40 is an estimate: replace it with your number. 0 = no check | steps 9 and 12 |
+| `STUDIO_IDLE_TIMEOUT_MIN` | 30 | Unload the model after this many idle minutes. 0 = right away | steps 11 and 19 |
+| `STUDIO_MUSIC_MIN_FREE_GB` | 40 | The same check for the music model (it needs about 24 GB; 40 is an estimate) | section 20 |
+| `STUDIO_SPEECH_MIN_FREE_GB` | empty (each engine's own estimate) | The same check for a speech engine | section 31 |
+| `STUDIO_LOCAL_FILES_ONLY` | `auto` | `auto` uses the local cache and touches the network only for files that are missing; `true` never contacts Hugging Face; `false` asks the hub on every load | sections 20 and 31 |
+| `STUDIO_CPU_OFFLOAD` | `false` | Keep parts of the image model in CPU memory between uses: slower, and rarely useful on the Spark | none |
+| `STUDIO_RETENTION_DAYS` | 30 | Finished runs you did not Keep move to the bin after this many days. 0 = never | section 14 |
+| `STUDIO_BIN_DAYS` | 30 | How long a deleted run stays in **Deleted** before it goes for good. 0 = no bin: Delete is for good at once | sections 14 and 24 |
+| `STUDIO_QUEUE_CAP` | 10 | How many jobs may wait; one more is refused with "The queue is full" | section 33 |
+| `STUDIO_OLLAMA_URL` | empty | Where your Ollama is, for the Prompt builder (and Suggest in section 36). For an Ollama on the Spark itself: `http://host.docker.internal:11434`. Empty: the tab says how to set it up. The address stays in `.env` and is left out of the page and the logs | sections 30 and 36 |
+| `STUDIO_OLLAMA_MODEL` | empty | The Ollama model, as `ollama list` names it, with its tag | sections 30 and 36 |
+| `STUDIO_OLLAMA_VISION_MODEL` | empty | Only if that model cannot look at pictures: another one that can, for messages with a picture | section 30 (h) |
+| `STUDIO_OLLAMA_KEEP_ALIVE`, `STUDIO_OLLAMA_NUM_CTX`, `STUDIO_OLLAMA_THINK`, `STUDIO_OLLAMA_TIMEOUT_S`, `STUDIO_OLLAMA_MAX_REPLY_S`, `STUDIO_BUILDER_AT_ONCE` | `5m`, 32768, `on`, 120, 900, 1 | How long Ollama keeps its model loaded, the conversation window, whether it thinks first, how long a silence or a reply may last, and how many chats may wait on it | section 30 (j) |
+| `STUDIO_MAX_UPLOAD_MB` | 20 | The largest single picture you may upload, in MB (a picture may also have at most 16 megapixels): the photos of editing and of Upscale a picture | sections 15, 18 and 21 (c3) |
+| `STUDIO_MUSIC_MAX_SECONDS` | 300 | The longest track you may ask for (10 to 360) | section 20 (d) |
+| `STUDIO_SPEECH_ENGINES` | empty (all four) | Which voice engines to offer, as a list of ids: `qwen3-tts`, `voxtral`, `kokoro`, `piper` | section 31 |
+| `SPEECH_VOXTRAL` | 0 | Set to 1 for a build that includes Voxtral's server (large, optional): `SPEECH_VOXTRAL=1 docker compose build` | section 31 |
+| `STUDIO_SPEECH_GPU_FRACTION` | 0.2 | The share of the GPU's memory that Voxtral's server may take (0.05 to 0.9) | section 31 (j) |
+
+`compose.yaml` passes each of these to the container by name, except the ones compose itself uses (`STUDIO_UID`, `STUDIO_GID`,
+`STUDIO_BIND`, `STUDIO_PORT`, `HF_CACHE_DIR`, `NGC_TAG`, `SPEECH_VOXTRAL`), which shape how the container is built, run or published.
+Sections 14 to 38 name a few more where they use them (`STUDIO_MAX_INPUT_IMAGES`, `STUDIO_EDIT_WARN_UNITS`, `STUDIO_DRAFT_SIZE`,
+`STUDIO_VARIATIONS_FROM_PICTURE`, `STUDIO_TAG_SUGGESTIONS` and others).
 
 ---
 
@@ -22,6 +127,8 @@ git clone https://github.com/NoSQLKnowHow/ai-image-studio.git
 cd ai-image-studio                     # main has everything; no branch to switch to
 ```
 
+The app is called AI Studio; the repository and its folder are still named `ai-image-studio`.
+
 ## 2. Check Docker and the GPU
 
 ```bash
@@ -29,12 +136,12 @@ docker ps                              # must work without sudo
 docker run --rm --runtime=nvidia --gpus=all nvcr.io/nvidia/cuda:13.0.1-base-ubuntu24.04 nvidia-smi
 ```
 
-Good: `docker ps` lists containers (perhaps Hermes'), and `nvidia-smi` prints a table naming the
+Good: `docker ps` lists containers (perhaps those of an LLM server you run), and `nvidia-smi` prints a table naming the
 **GB10**. Memory columns may say "Not Supported"; that's normal on the Spark.
 
 - `permission denied ... docker.sock`: add yourself to the docker group, then log out and in:
   `sudo usermod -aG docker $USER`
-- `unknown or invalid runtime name: nvidia`: see Troubleshooting.
+- `unknown or invalid runtime name: nvidia`: see [Troubleshooting](#troubleshooting).
 
 ## 3. Note the memory picture before anything loads
 
@@ -45,7 +152,7 @@ docker stats --no-stream --format '{{.Name}}\t{{.MemUsage}}'
 ```
 
 Note: `MemAvailable` (in kB; divide by 1048576 for GB), and which containers run, especially a
-vLLM one for Hermes, and how much it uses.
+vLLM one (or an Ollama with a model loaded: `ollama ps`), and how much it uses: the studio shares the Spark's memory with it.
 
 ## 4. Prepare the settings and folders
 
@@ -61,7 +168,7 @@ created it), take it back: `sudo chown -R $(id -u):$(id -g) ~/.cache/huggingface
 Root-run containers such as vLLM can still use it afterwards.
 
 Optional now, or later in `.env`: `STUDIO_ALLOWED_HOSTS` (the name or address you browse to) and
-`STUDIO_BIND=127.0.0.1` if the page should not be reachable from the LAN.
+`STUDIO_BIND=127.0.0.1` if the page should not be reachable from the LAN. The table of settings at the top of Part 1 lists the others you may want.
 
 ## 5. Build the image
 
@@ -70,14 +177,35 @@ docker compose build --progress=plain 2>&1 | tee build.log
 grep check_image build.log
 ```
 
-The first build downloads NVIDIA's PyTorch image (well over 10 GB), so give it time.
+The first build downloads NVIDIA's PyTorch image (the README gives it as an 8.3 GiB download, compressed, and it unpacks to
+considerably more), so give it time. It also builds the web page and installs the Python packages and the optional Vector,
+music and speech libraries, one Dockerfile step for each.
 
-Good: the `grep` shows lines ending in `check_image: OK`, including the torch, CUDA, diffusers and
-transformers versions. Note them.
+The last step of the build runs `docker/check_image.py`. It prints one line for each thing it checked, every one starting
+`check_image:`, and the `grep` finds them (and the Dockerfile's own `RUN` line that starts it). In order, with your versions
+in place of mine:
 
-If the build stops at `check_image: PROBLEM: ...`, that line names the root cause, and the lines
-above it hold the installed versions and the full traceback. Send me all of it, from the first
-`check_image:` line to the end of the file:
+- `check_image: Python …; installed: torch==…, …`: first, up front: the Python version and the versions of the libraries it
+  names (torch, transformers, diffusers, accelerate and the others it finds).
+- `check_image: torch … (CUDA …), diffusers …, transformers …`, then `check_image: pipeline features: {…}`.
+- `check_image: GPU visible now: no (expected during a build)`: Docker gives a build no GPU, so "no" is right here.
+- `check_image: music worker: diffusers … from /opt/music-libs`: the music model's own copy of diffusers.
+- `check_image: Enlarge: spandrel …`: what Enlarge (section 22) needs.
+- `check_image: Vector: vtracer …, shapely … made a …-layer SVG from a test picture`: a tiny picture was really run through the
+  Vector clean-up (section 28).
+- Several `check_image: Speech: …` lines: the first line of `ffmpeg -version`, whether that ffmpeg has an AAC encoder
+  (the audiobook file, section 35), and one for each engine (`qwen3-tts`, `voxtral`, `kokoro`, `piper`): `can run (…)` or
+  `not available here: <the reason>`. Voxtral says it is not available unless you built it with `SPEECH_VOXTRAL=1`.
+- `check_image: OK`, last.
+
+Good: those lines, ending in `check_image: OK`. Note them. The `Enlarge:`, `Vector:` and `Speech:` lines are notes, never
+failures: whatever cannot run is reported with its reason (the page shows the same reason), and the build goes on. The log
+also holds a few `NOTE:` lines from Dockerfile steps that are allowed to fail; one is normal: `NOTE: Voxtral is not built
+into this image (add --build-arg SPEECH_VOXTRAL=1 to build it); its engine will say so`.
+
+If the build stops, the last lines are `check_image: PROBLEM: ...` (the root cause; there may be several) and
+`check_image: FAILED`, and the lines above them hold the installed versions and, for an import failure, the full traceback.
+Send me all of it, from the first `check_image:` line to the end of the file:
 
 ```bash
 sed -n '/check_image: Python/,$p' build.log
@@ -94,27 +222,31 @@ docker compose logs -f studio          # Ctrl+C stops following; the server keep
 Good, in the log:
 
 - `serving the web UI from /app/static`
-- `AI Studio 0.1.0 ready (pipeline=real, data=/data)`
+- `AI Studio <version> ready (pipeline=real, data=/data)`, where `<version>` is the version of this build: the number in the page's
+  title, and in `curl -s localhost:8081/api/health`
 - `capability check passed: {... 'name': 'NVIDIA GB10', 'capability': '12.1' ...}` (this can take
-  a minute: it imports PyTorch and diffusers in a separate process)
+  a minute: it imports PyTorch and diffusers in a separate process), and next to it
+  `music capability check passed: {...}` for the music model, whose start-up check runs at the same time
+- for a voice engine that cannot run here, such as Voxtral when you did not build it, a warning that starts `speech engine <id>:`
+  and gives the reason: expected, not a failure (section 31 (a))
 
-If it says `capability check failed: ...` instead, the message says why; see Troubleshooting.
+If it says `capability check failed: ...` instead, the message says why; see [Troubleshooting](#troubleshooting).
 
 ## 7. Open the page
 
 From your laptop or phone on the same network: `http://<spark-address>:8081` (on the Spark,
 `hostname -I` shows its addresses).
 
-Good: the page loads with the light or dark theme following your system. The model pill in the
-top-right says **Model not loaded**; click it and the details name the GB10.
+Good: the page loads with the light or dark theme following your system, and a row of tabs (Images, Music, Vector, Prompt builder and Speech; Part 1 uses
+Images). The model pill in the top-right says **Model not loaded**; click it and the panel's GPU line names the GB10.
 
 ## 8. First image: small and quick
 
 1. **Options**: Size **Custom 1024 × 1024**, **Steps 20**. Close the drawer.
 2. Prompt: `a lighthouse at dusk, oil painting`. Press **Generate**.
 
-The first run downloads the model into `~/.cache/huggingface` (tens of GB; watch
-`docker compose logs -f studio`), then loads it. The pill shows **Loading model…**, then the card
+The first run downloads the model into `~/.cache/huggingface` (31 GiB, says the README; watch
+`docker compose logs -f studio`), then loads it. The pill shows **Loading image model…**, then the card
 shows step progress.
 
 Note: how long the download took, how long the load took (the log says `pipeline real ready in Ns`),
@@ -160,7 +292,7 @@ then apply it with `docker compose up -d`.
 sed -i 's/^STUDIO_IDLE_TIMEOUT_MIN=.*/STUDIO_IDLE_TIMEOUT_MIN=2/' .env && docker compose up -d
 ```
 
-Generate one image, then wait. The pill says **Model ready · unloads in 2 minutes**, then **Model
+Generate one image, then wait. The pill says **Image model ready · unloads in 2 minutes**, then **Model
 not loaded**.
 
 Good: `MemAvailable` rises by about the footprint from step 9, and
@@ -189,12 +321,23 @@ Good: the page (after a reload) shows all earlier runs with their images. Stoppi
 image is generating marks that run failed with `Interrupted because the server was stopped.` (or
 `Interrupted by a server restart.` if the container was killed outright); the next run works.
 
-## 14. Cancel, Keep and automatic clean-up (new in this update)
+# Part 2: Release checks (sections 14 to 38)
+
+**How to read a section.** Each one says what "Good" looks like; where it says to write something down, do, and send
+back what the section's "Send back" line and the list at the end ask for. A section was written when its release came,
+so three things in it are true of that day and not necessarily of today: "Update first ... the title should read
+**v1.3**" names the version of that release (a later number in the title is fine, and `git pull` on `main` brings every
+release); a sentence such as "tried in unit tests ... **not with your models**" says how much had been tried when the
+section was written; and the pill and button names are the ones of that release, corrected here where a later release
+renamed them. The status table at the top is the current word. Sections 37 and 38 have not been run.
+
+## 14. Cancel, Keep and automatic clean-up (new in 1.1)
 
 Update first: `git pull && docker compose up -d --build` (the unchanged layers come from the cache).
 
-One thing to know before you do: from now on a run is **deleted 30 days after it was made** (and you
-get a warning on its card in the last 7 days). Yours are only days old, so nothing goes today. If you
+One thing to know before you do: from 1.1 on, a run is cleaned up **30 days after it was made** (and you
+get a warning on its card in the last 7 days). Since 1.13 the clean-up moves it to **Deleted** (section 24) and it
+is deleted for good 30 days after that. Yours are only days old, so nothing goes today. If you
 want to be sure some are never touched, press **Keep** on them (below), or set
 `STUDIO_RETENTION_DAYS=0` in `.env` to turn the clean-up off. A backup (`scripts/backup.sh`) first is
 cheap insurance.
@@ -209,7 +352,7 @@ the click.
 Good: the card says `Stopping` and then **Canceled** within about one step (a 2K step is a few
 seconds: 40 steps take around 4 minutes). If the first image was already finished the card says
 `Canceled. 1 of 2 images finished and kept.` and you can open it; if not, `Canceled before any image
-was finished.` The pill still says **Model ready** (the model was not unloaded), and the next
+was finished.` The pill still says **Image model ready** (the model was not unloaded), and the next
 Generate starts straight away with no `Loading the model…`. **Write down the seconds from click to
 Canceled**; the log has the same moment: `docker compose logs studio | grep -i cancel`.
 
@@ -240,14 +383,16 @@ PY
 Reload the page. Good: that card says `Will be deleted in 2 days. Press Keep to save it.` Press
 **Keep** and the warning goes; press it again and the warning is back. Now run the same command with
 `40` instead of `27` on a run that is **not** kept, then `docker compose restart studio`. Good: a few
-seconds after start-up the card is gone, and so are its files: `ls data/images | grep "$RUN"` prints
+seconds after start-up the card has left the history and is in **Deleted** (since 1.13; its files are still
+there: `ls data/images | grep "$RUN"` still lists them). To see the files go too, press **Delete forever** on it
+in **Deleted** (or set `STUDIO_BIN_DAYS=0` first, so that the clean-up deletes for good): then `ls data/images | grep "$RUN"` prints
 nothing.
 
 ## 15. Editing with several images, through the API (new in 1.2)
 
 This is the same thing as section 18, through the API with `curl` instead of the page. The page has had an
 Edit mode since 1.6, so section 18 is the one to do; this one stays for checking the API from a terminal. It
-is the first time the **real model** is asked to edit, so it is worth trying. You need two or three pictures:
+was the first time the **real model** was asked to edit. You need two or three pictures:
 say a photo of an object or pet, and a scene. Any JPEG, PNG or WebP.
 
 **Before you update:** this version changes the database layout. The first start upgrades it and keeps a
@@ -262,7 +407,7 @@ database written by the real 1.1 code. A backup (`scripts/backup.sh`) first is s
 ```bash
 git pull && docker compose up -d --build
 docker compose logs studio | grep -i "schema"        # "upgrading the database from schema 1 to 2 ..."
-curl -s localhost:8081/api/health                    # "version":"1.2"
+curl -s localhost:8081/api/health                    # {"ok":true,"version":"<the version of this build>"}
 ```
 
 **a) A first edit** (the first run after a quiet spell loads the model, which takes a while):
@@ -336,12 +481,13 @@ Ctrl+Shift+R). There is no database change. Only runs made with 1.4 or later can
 
 **a) From a smaller scale.** Turn **Lock seed** on (Options) and set the prompt bar's **Scale** to **50%**.
 Generate. Good: when the card says Done it has **Regenerate larger** (hover it: it names the size and steps,
-for example "Regenerate at 2752×1536, 40 steps" at the default size) and a greyed **Upscale** that says it is not built yet.
+for example "Regenerate at 2752×1536, 40 steps" at the default size). (1.4 and 1.5 also showed a greyed **Upscale** beside it; 1.10 removed it and
+put Make 4K, section 21, and Enlarge, section 22, in its place.)
 Click **Regenerate larger**. Good: a toast says it is queued at that size, and a second card appears at the
 full size with the **same seed** and prompt, and no button of its own. **Write down both times.** Then look
 at the two pictures: with the same seed they are **not** expected to be the same picture (§23.1). **Write
 down how different they are** (same subject? same layout? nothing alike?), because that decides how much
-the Upscale button below matters.
+Make 4K and Enlarge (sections 21 and 22) matter.
 
 **b) From a draft.** Select several images in Options (say 3), then click **Draft**. When it is Done, click
 **Regenerate larger** on its card. Good: one full-size image at the size and steps you had selected (not the
@@ -370,10 +516,10 @@ one image and not three, and, as in (a), how it compares with the small one.
 
 ---
 
-## 18. Editing on the page, and the Spark test for edits (new in 1.6; this is milestone M5c)
+## 18. Editing on the page, and the Spark test for edits (new in 1.6)
 
 Update first: `git pull && docker compose up -d --build`; the title should read **v1.6** (reload with
-Ctrl+Shift+R). There is no database change. The **Edit** switch should be enabled; if it is greyed out,
+Ctrl+Shift+R). There is no database change. This is the Spark test for edits that `docs/DESIGN.md` lists as M5c (§21.11). The **Edit** switch should be enabled; if it is greyed out,
 hover it for the reason (the pipeline reports it cannot edit; `docker compose logs studio` says why).
 
 You need a few pictures: a photo of an object or pet, a scene, a PNG with a transparent background, and (for
@@ -435,12 +581,12 @@ the idle timeout at its normal value (30), not the 2 minutes of step 11.
 
 **a) Load without a run.** Start from **Model not loaded** (restart the container if it isn't:
 `docker compose restart`). Write down `free -h`. Click **Load model** beside the pill. Good: the button goes
-away, the pill says **Loading model…**, focus is on the pill, and **no run card appears**. **Write down how long
-until the pill says Model ready** (this is the real load time, first time and then with the files cached, if you
+away, the pill says **Loading image model…**, focus is on the pill, and **no run card appears**. **Write down how long
+until the pill says Image model ready** (this is the real load time, first time and then with the files cached, if you
 unload and load again) and `free -h` once it is ready: the difference is what Load takes. Then type a prompt and
 generate: it should start at once, with no loading pause.
 
-**b) The countdown starts when the load finishes.** Right after the pill says Model ready it should say about
+**b) The countdown starts when the load finishes.** Right after the pill says Image model ready it should say about
 **unloads in 30 minutes**, not 29 or 28 (the load itself does not eat into it).
 
 **c) A run sent while it loads.** Unload, click Load model, and send a Generate straight away. Good: the card
@@ -452,7 +598,7 @@ shows one "pipeline ... ready" line for that pair).
 the figure from step 9. While a run is going the button is not shown (the pill says Generating).
 
 **e) The memory check.** Make memory scarce (the way step 12 does) and click Load model. Good: nothing starts, a
-message appears on screen, the pill says **Model problem** with the reason (open it for the hint), and **Load
+message appears on screen, the pill says **Image model problem** with the reason (open it for the hint), and **Load
 model** is still there to try again once memory is free.
 
 **f) The idle timeout still works.** Load the model with the button and leave it alone. After the idle timeout
@@ -465,7 +611,7 @@ header does not scroll sideways.
 
 ## 20. Music: the model, from a terminal and through the API (new in 1.8)
 
-This section is the first time the **real MiniMax-Music3 model** runs anywhere: everything before it was checked against
+When this section was written it was the first time the **real MiniMax-Music3 model** would run anywhere: everything before it was checked against
 a stand-in and, for the pipeline's own code, against a tiny random-weight copy on a CPU. Expect surprises, and write
 down what you see. The Music tab (1.9) is checked at the end of this section; the model, its speed and its memory come first, with
 `scripts/minimax_music.py`, which uses the very same pipeline class the studio uses.
@@ -546,7 +692,7 @@ long the switch takes in each direction.
 Load for the music model: nothing starts, the message says *music model*, and nothing is left loaded.
 
 **j) The page (new in 1.9).** Update (`git pull && docker compose up -d --build`; the title should read **v1.9**) and
-open the page. **Good:** two tabs, *Images* and *Music*; the arrow keys switch between them and the choice is still
+open the page. **Good:** the tabs *Images* and *Music* (later releases added Vector, Prompt builder and Speech after them); the arrow keys switch between them and the choice is still
 there after a reload; the Music tab has the boxes, the description below them (try changing a box, then the
 description by hand, then *Rebuild from fields*), *Add lyrics* (off), the length shortcuts, and under the form the
 note naming MiniMax-Music3 and its licence. If the tab says *Music isn't available*, the reason and hint it shows are
@@ -695,27 +841,9 @@ the model, the settings (`--dtype bf16`, the tile overlap) or the whole idea nee
 
 ---
 
-## Troubleshooting
-
-| You see | What to do |
-|---|---|
-| `unknown or invalid runtime name: nvidia` | Register NVIDIA's runtime with Docker: `sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker`. Or delete the `runtime: nvidia` line from `compose.yaml`: the GPU reservation below it is the `--gpus all` equivalent and may be enough. |
-| `could not select device driver "nvidia"` | The NVIDIA Container Toolkit isn't set up for Docker. It ships with DGX OS; check step 2. |
-| `The data directory /data is not writable by this process (uid …)` | The message ends with the exact `sudo chown` to run on `./data`. |
-| Model pill: **Model unavailable**, `No CUDA GPU is visible` | The container didn't get the GPU. Step 2 must work first. |
-| `no kernels for the Spark's GPU (GB10)` | Try a newer NVIDIA PyTorch release: set `NGC_TAG` in `.env` (for example `25.11-py3`), then `docker compose build`. |
-| `diffusers is installed, but QwenImage21Pipeline is only a placeholder` | transformers didn't import. `docker compose exec studio python -c 'import transformers'` shows why; send me the output. |
-| Download fails with 401/403 or "gated" | Accept the model's terms on Hugging Face if it asks, then set `HF_TOKEN` in `.env` and `docker compose up -d`. |
-| `Not enough free memory to load the model` | Hermes' vLLM probably holds the memory: lower its `--gpu-memory-utilization` or stop it, then flush the page cache: `sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'`. Then **Retry**. |
-| Out of memory while loading or generating | Same as above; also try a smaller size or fewer images per click. |
-| `port is already allocated` | Something else uses 8081 (the studio's port on the Spark since 1.20; it was 8080): set another `STUDIO_PORT` in `.env`, and if your `.env` still says `STUDIO_PORT=8080`, change it to 8081. |
-| The page loads but never updates live | Check `docker compose logs studio`; the connection banner at the top says if the live stream is down. |
-
-To update later: `git pull && docker compose up -d --build`.
-
 ## 23. The Kept view, and Enlarge waiting its turn (new in 1.12)
 
-Update first: `git pull && docker compose up -d --build` (on the branch or `main` that carries 1.12); the title should read **v1.12** (reload with Ctrl+Shift+R).
+Update first: `git pull && docker compose up -d --build` (on `main`); the title should read **v1.12** (reload with Ctrl+Shift+R).
 There is no database change. The Enlarge part is §22(g) above; this section is the Kept view, which needs no GPU but is worth looking at with your own history.
 
 **a) The filter bar.** Above your runs: **Show**, **All**, **Kept N**. Press **Keep** on two cards. **Good:** the number beside **Kept** goes up by itself;
@@ -867,14 +995,14 @@ Update first: `git pull && docker compose up -d --build`; the title should read 
 A copy is made before it (`data/studio.sqlite.before-schema-7`; if you start straight from 1.13 you also get the copies for schemas 5 and 6). Nothing here needs a second GPU job at the same time:
 a Vector run is an image run (the model draws) followed by a short clean-up on the CPU.
 
-**a) The start-up.** In the build output, a line beginning **`Vector:`** (from `check_image.py`; it is a note and never fails the build): copy it if it says the libraries could not be installed.
+**a) The start-up.** In the build output, the line `check_image: Vector: …` (from `check_image.py`; it is a note and never fails the build): copy it if it says `unavailable` or `cannot make a test file here`.
 `ls -l data/studio.sqlite*` shows the `.before-schema-7` copy. **Good:** a third tab **Vector** is there. If it says the libraries are missing instead, send me the line from the build and `docker compose logs studio | grep -i vector`.
 
 **b) A first real run, black and white.** On the Vector tab: prompt *a simple fox head, bold*, Kind **Silhouette**, Colours **2**, size 100 × 100 mm, then **Make vector**.
 **Good:** the card says *drawing* and then *tracing*; the preview is the shape in one colour on white; the card says **2 colours, 1 layer**. **Write down** the seconds of the drawing and of the tracing
 (the clean-up is on the CPU: the card or `docker compose logs studio` says), `MemAvailable` before and the lowest while it ran, and the `worker_rss_gb` of step 27 (c).
 
-**c) Does the clean-up like real Qwen pictures?** This is the first time the clean-up sees one (it has only been tried on constructed pictures). On the card look at the **notes** and the **paths** count; download the SVG and open it in a browser.
+**c) Does the clean-up like real Qwen pictures?** This was the first time the clean-up saw one (until then it had only been tried on constructed pictures). On the card look at the **notes** and the **paths** count; download the SVG and open it in a browser.
 **Good:** the shape matches the preview, with no grey fringe and no texture. **Send me** the notes (`specks_removed`, `small_feature`, `hanging_island`, `coarse_drawing`) and a screenshot if the drawing came out with shading,
 gradients or text in it (that would mean the model is ignoring the negative words; guidance `4.0` is a guess for this model).
 
@@ -938,7 +1066,7 @@ with **Undo**; Undo takes the picture out and returns to Generate. Drop two pict
 **j) Upscale a picture….** Click **Upscale a picture…**, close the file chooser, press **Ctrl+V** with a screenshot on the clipboard. **Good:** a 4K PNG downloads. Drop a picture on the button (it lights up while it is over it).
 Drop two: **good:** it uses the first and says so. Paste a picture on the bare page afterwards: **good:** it goes to the tray, and no upscale starts.
 
-**k) Eight pictures (the measurement).** Set `STUDIO_MAX_INPUT_IMAGES=8` in `.env`, restart, and make **Edit** runs with **6** and then **8** pictures at **1K** (and 4 at 2K if the memory allows), with Hermes loaded.
+**k) Eight pictures (the measurement).** Set `STUDIO_MAX_INPUT_IMAGES=8` in `.env`, restart, and make **Edit** runs with **6** and then **8** pictures at **1K** (and 4 at 2K if the memory allows), with your LLM server loaded (the other models that share the memory).
 **Good:** the tile reads *8 of 8* and is switched off; a ninth is skipped and counted; the run finishes. **Write down** the seconds, `MemAvailable` before and the lowest while it ran, and whether it ran out of memory (the failure card should
 say so and suggest 1K or fewer pictures, and the server should stay up). **Send me** whether the model follows **"image 7"** and **"image 8"** in a prompt as it does "image 1" and "image 2", and what to set
 `STUDIO_MAX_INPUT_IMAGES` (shipped 4) and `STUDIO_EDIT_WARN_UNITS` (shipped 8; eight pictures at 1K are 8 units and do not warn) to.
@@ -948,12 +1076,12 @@ say so and suggest 1K or fewer pictures, and the server should stay up). **Send 
 
 ## 30. The Prompt builder, with your Ollama (new in 1.19)
 
-**Load it.** Until 1.19 is merged it is on the branch `prompt-builder`; once it is merged (`main`), `git pull` is all you need.
+**Load it.** 1.19 began on the branch `prompt-builder` and is merged (pull request #41, in the repository's history), so `git pull` on `main` is all you need.
 
 ```bash
 cd ~/ai-image-studio                                  # your checkout
 mkdir -p ~/backups && scripts/backup.sh --no-model ~/backups   # first: the first start of 1.19 upgrades the database to schema 9 (without the models: about 10 GB, and a minute or two)
-git fetch origin && git checkout prompt-builder && git pull     # (after the merge: git checkout main && git pull)
+git checkout main && git pull
 ```
 
 Then put your Ollama in `.env` (the address stays in this file and nowhere else: the page, the logs and every message leave it out):
@@ -968,7 +1096,7 @@ For a container to reach an Ollama on the same machine, Ollama must listen beyon
 `compose.yaml` already maps `host.docker.internal` to the Spark. Then:
 
 ```bash
-docker compose up -d --build                          # builds 1.19 and reads .env; reload the page with Ctrl+Shift+R: the title reads v1.19
+docker compose up -d --build                          # builds this release and reads .env; reload the page with Ctrl+Shift+R: the title shows the version (1.19 or later)
 ls -l data/studio.sqlite*                             # note the line: studio.sqlite.before-schema-9 is the copy made before the upgrade
 docker compose logs studio | grep -i "schema\|builder" | head
 ```
@@ -1015,15 +1143,15 @@ Press **Unload from memory**: **good:** `ollama ps` shows nothing loaded and `Me
 
 ## 31. The Speech tab: four voice engines, on your Spark (new in 1.20)
 
-Nothing here has run on a Spark yet. The fake engines (a tone for a voice) and a real browser have tried the plumbing; **no real engine has made a sound, and nobody has judged one**. So this section is mostly *listening*, and the notes you send back are about how it sounds and what it costs.
+When this section was written, nothing here had run on a Spark. The fake engines (a tone for a voice) and a real browser had tried the plumbing; **no real engine had made a sound, and nobody had judged one**. So this section is mostly *listening*, and the notes you send back are about how it sounds and what it costs.
 
-**Load it.** Until 1.20 is merged it is on the branch `speech`; once it is merged (`main`), `git pull` is all you need.
+**Load it.** 1.20 began on the branch `speech` and is merged (pull request #43, in the repository's history), so `git pull` on `main` is all you need.
 
 ```bash
 cd ~/ai-image-studio                                  # your checkout
 mkdir -p ~/backups && scripts/backup.sh --no-model ~/backups   # first: the first start of 1.20 upgrades the database to schema 10 (without the models: about 10 GB, and a minute or two)
-git fetch origin && git checkout speech && git pull             # (after the merge: git checkout main && git pull)
-docker compose up -d --build                          # builds 1.20 and reads .env; reload the page with Ctrl+Shift+R: the title reads v1.20
+git checkout main && git pull
+docker compose up -d --build                          # builds this release and reads .env; reload the page with Ctrl+Shift+R: the title shows the version (1.20 or later)
 ls -l data/studio.sqlite*                             # note the line: studio.sqlite.before-schema-10 is the copy made before the upgrade
 grep check_image build.log | grep -i speech          # if you built with a log, as in step 5; else: docker compose logs studio | grep -i "speech" | head -20
 ```
@@ -1060,7 +1188,7 @@ grep check_image build.log | grep -i speech          # if you built with a log, 
 
 ## 32. Load progress: watch a real download (new in 1.21)
 
-The server says how far a model's load has got, and the page shows it (the header pill, the cards, the Speech tab, the voice dialogs). Items a to g read it from a terminal; item h is the page. **Nothing here has been seen on a Spark**: the watcher was tried with fake downloads and against the real downloaders in a sandbox, not with your models. This is where that is checked.
+The server says how far a model's load has got, and the page shows it (the header pill, the cards, the Speech tab, the voice dialogs). Items a to g read it from a terminal; item h is the page. When this section was written, **nothing here had been seen on a Spark**: the watcher had been tried with fake downloads and against the real downloaders in a sandbox, not with your models. This is where that is checked.
 
 **Watch it.** In one terminal, leave this running:
 ```bash
@@ -1082,9 +1210,9 @@ In another, `du -sh ~/.cache/huggingface/hub/models--Qwen--Qwen3-TTS-*` (or whic
 
 ## 33. Reorder the queue (new in 1.22)
 
-Tried in unit tests, in a real browser with the fake pipeline, and with a finger sent through the browser's protocol; **not with your models, and not with a real thumb.** This is where that is checked. You need a job that takes long enough for others to wait behind it: a full-size image run of several pictures does it.
+When this section was written it had been tried in unit tests, in a real browser with the fake pipeline, and with a finger sent through the browser's protocol; **not with your models, and not with a real thumb.** This is where that is checked. You need a job that takes long enough for others to wait behind it: a full-size image run of several pictures does it.
 
-**a) Drag.** Start a long image run (for example 4 pictures at full size). While it goes, make three more jobs, one of them a **Draft**, one a **music** track and one a plain image (they wait behind the first). The header shows **Queue** and a count. Open it. **Good:** the job that is going is at the top with a lock; the three waiting jobs are listed with their place and **Image / Music** and their words, and the draft is first (a draft jumps the line when it arrives). Drag the last job by its grip to the top. **Good:** a line shows where it will land; when you let go it is first; the cards' **Queued · #n** change to match, **and the cards on the Images tab move too**: the job that is going first, then the waiting jobs in queue order, then your history. A job you make now goes to the end of the waiting cards, not to the top.
+**a) Drag.** Start a long image run (for example 4 pictures at full size). While it goes, make three more jobs, one of them a **Draft**, one a **music** track and one a plain image (they wait behind the first). The header shows **Queue** and a count. Open it. **Good:** the job that is going is at the top with a lock; the three waiting jobs are listed with their place, their kind (**Image**, **Music**, **Drawing**, **Speech** or **Voice**) and their words, and the draft is first (a draft jumps the line when it arrives). Drag the last job by its grip to the top. **Good:** a line shows where it will land; when you let go it is first; the cards' **Queued · #n** change to match, **and the cards on the Images tab move too**: the job that is going first, then the waiting jobs in queue order, then your history. A job you make now goes to the end of the waiting cards, not to the top.
 **b) The order they are worked on.** Let the long run finish. **Good:** the jobs start in the order the panel showed. **Write down:** whether anything started out of that order.
 **c) Your order wins over drafts.** Drag a full-size job above the draft. **Good:** it stays there, and runs first. Make another draft. **Good:** the new draft goes to the very **front** of the line, and the job you placed is still ahead of the first draft.
 **d) What cannot be moved.** **Good:** the job that is going has no grip and no arrows. A **reading** that has made a part and is waiting for its next turn shows a lock and cannot be dragged, but another job can be dropped before or after it. If a job starts while the panel is open, its grip and arrows are gone within a moment; if you were dragging it, nothing happens when you let go.
@@ -1097,7 +1225,7 @@ Tried in unit tests, in a real browser with the fake pipeline, and with a finger
 
 ## 34. More like this, compare, and the experiment for variations of a picture (new in 1.24)
 
-Tried in unit tests, in a real browser with the fake pipeline (whose pictures are plain patterns) and against the real server code; **not with your models.** Parts a to g need only the model you already use. **Part h is the experiment** that decides whether *Variations of this picture* is ever switched on: it is off until you do. The database is upgraded on first start, with a copy made first: after the first start, `ls -l data/studio.sqlite*` should show **`studio.sqlite.before-schema-11`** next to the database.
+When this section was written it had been tried in unit tests, in a real browser with the fake pipeline (whose pictures are plain patterns) and against the real server code; **not with your models.** Parts a to g need only the model you already use. **Part h is the experiment** that decides whether *Variations of this picture* is ever switched on: it is off until you do. The database is upgraded on first start, with a copy made first: after the first start, `ls -l data/studio.sqlite*` should show **`studio.sqlite.before-schema-11`** next to the database.
 
 **a) More takes, from a card.** Make a picture you like (any size you normally use). Press **More like this** on its card. **Good:** a dialog opens with **More takes of the prompt** chosen, **Variations of this picture** greyed with the words *Not tried on this machine yet*, **Pictures** at 4, your own words in the **Words** box, and a line saying what will be made (the size and steps of that run). Press **Make**. **Good:** the dialog closes, a toast says it is queued, and a **new card** appears with 4 pictures: each different from the first picture and from each other, in the same subject and style because the words are the same. Its first chip reads **Variation of “…your words…”**; the original card now has a chip **Variations (1)**. **Write down:** the time for the 4 pictures, whether they look like takes of the same idea, and whether any was a copy of the original (none should be: the seeds are new).
 **b) From the viewer.** Open one of the original's pictures in the viewer and press **More like this** there. **Good:** the same dialog and the same request as (a); the new run is linked to the original in the same way (its chip says the same). Change the **Words** (add a colour, say) and make 2 pictures. **Good:** the 2 pictures follow the changed words; the original's words on its card are untouched.
@@ -1113,7 +1241,7 @@ Tried in unit tests, in a real browser with the fake pipeline (whose pictures ar
 
 ## 35. Audiobook polish for Speech: respellings, several voices, chapter marks (new in 1.25)
 
-Tried in unit tests, in the server's tests with a **real ffmpeg**, and in a real browser with the fake speech engines (which make tones); **no real engine has spoken any of it**, so every question about sound is yours. The database is upgraded on first start, with a copy made first: after the first start, `ls -l data/studio.sqlite*` should show **`studio.sqlite.before-schema-12`** next to the database. Use the engine you like best for a, b and c, and a second for d. **Rebuild the image first** (`docker compose build`): the build's `check_image:` lines now include one that says whether ffmpeg has an AAC encoder; **Good:** a line like `Speech: ffmpeg 6.1 with an AAC encoder (the audiobook file can be made)`. Write down the line if it says anything else.
+When this section was written it had been tried in unit tests, in the server's tests with a **real ffmpeg**, and in a real browser with the fake speech engines (which make tones); **no real engine had spoken any of it**, so every question about sound is yours. The database is upgraded on first start, with a copy made first: after the first start, `ls -l data/studio.sqlite*` should show **`studio.sqlite.before-schema-12`** next to the database. Use the engine you like best for a, b and c, and a second for d. **Rebuild the image first** (`docker compose build`): the build's `check_image:` lines now include one that says whether ffmpeg has an AAC encoder; **Good:** the line `check_image: Speech: ffmpeg has an AAC encoder (the audiobook file can be made)` (after the `Speech:` line that gives ffmpeg's version). Write down the line if it says anything else.
 
 **a) The pronunciation list.** On the Speech tab press **Pronunciation list**. Add `Nguyen` → `win`, then **Try it** with *"Nguyen's winter was long."* **Good:** the words below say *"win's winter was long."* (the whole word only, and `winter` is left alone). Add `US` with **Match capitals exactly** ticked, as `you ess`, and try *"Tell us about the US."* **Good:** only the second is changed. **Write down:** nothing yet; now the sound.
 **b) How respellings sound.** Prepare a short text that has your own hard names in it (a person's, a place's, a medicine's: five of them). With **no entries**, make the reading in your favourite voice and listen: **write down which words were wrong**. Add one entry for each as a respelling in plain letters (the way you would say it to a child: `win`, `nuh-GWEN`, `kuh-NEE-tuh`), make the reading again, and listen. **Good:** the words are now said as you spelled them, and **the text you read along with is still the original spelling**. **Write down:** for each word, **which spellings worked and which did not**, in this engine (hyphens, capitals and doubled letters are what to try). **Then make the same reading with another engine** and write down which of the respellings that worked in the first still work. That is the question the list cannot answer from here: it is one list for every engine, and plain respellings are not the engines' own phonemes.
@@ -1144,9 +1272,9 @@ Press **Prepare text**. **Good:** a **Speakers** list names **Alice, Bob and Car
 
 ## 36. Search and tags across history, with your Ollama and your real history (new in 1.26)
 
-Tried in unit tests, against a fake Ollama that answers in the right shape, and in a real browser with the fake pipeline and a scripted model; **not with your Ollama, your models or your real history.** Parts a, c to g and i need only what you already run; **part b needs your Ollama** (the Prompt builder's `STUDIO_OLLAMA_URL` and `STUDIO_OLLAMA_MODEL`, section 30). The database is upgraded on first start, with a copy made first: after the first start, `ls -l data/studio.sqlite*` should show **`studio.sqlite.before-schema-13`** next to the database, and the log should say the runs were indexed (`indexed N runs for search`).
+When this section was written it had been tried in unit tests, against a fake Ollama that answers in the right shape, and in a real browser with the fake pipeline and a scripted model; **not with your Ollama, your models or your real history.** Parts a, c to g and i need only what you already run; **part b needs your Ollama** (the Prompt builder's `STUDIO_OLLAMA_URL` and `STUDIO_OLLAMA_MODEL`, section 30). The database is upgraded on first start, with a copy made first: after the first start, `ls -l data/studio.sqlite*` should show **`studio.sqlite.before-schema-13`** next to the database, and the log should say the runs were indexed (`indexed N runs for search`).
 
-**a) Your real history is found.** Open the page, pick any tab, and type a word you know is in an old prompt (one from a month ago, say) into the **Search** box. **Good:** the old runs that have the word come up, newest first, and the number beside **All** is the number of runs found (it says *12 results* beside the box); *Show older* reads more if there are more than a page. Try a word from a **music** run's lyrics on the Music tab, and the **file name** or the **web address** of a reading on the Speech tab. **Write down:** any run you expected and did not get (with its words), and how long the first search took to answer (the page says nothing; count the seconds). Then type a few odd things: `"fox`, `fox*`, `fox AND hen`, `-fox`, `a:b`, and a single `(`. **Good:** each answers with a list or *No runs match*; **none shows an error**.
+**a) Your real history is found.** Open the page, pick any tab, and type a word you know is in an old prompt (one from a month ago, say) into the **Search** box. **Good:** the old runs that have the word come up, newest first, and the number beside **All** is the number of runs found (it says *12 results* beside the box); **Load older runs** reads more if there are more than a page. Try a word from a **music** run's lyrics on the Music tab, and the **file name** or the **web address** of a reading on the Speech tab. **Write down:** any run you expected and did not get (with its words), and how long the first search took to answer (the page says nothing; count the seconds). Then type a few odd things: `"fox`, `fox*`, `fox AND hen`, `-fox`, `a:b`, and a single `(`. **Good:** each answers with a list or *No runs match*; **none shows an error**.
 **b) Suggest, with your Ollama.** Open the **Tags and notes** editor on a picture you know well and press **Suggest**. **Good:** the button says *Asking…* for a few seconds and then a row of up to **5 suggested tags**, each a button with a +; **none is added by itself**; pressing one adds it and it leaves the row; **Dismiss** clears the row. Try a run of each kind (a picture, a track with lyrics, a drawing, a reading). **Write down:** the seconds a press takes with the image model **loaded and idle**, and with a picture **being made**; whether the tags are ones you would use (say how many of five); whether it reused the spelling of your own tags; and whether anything it suggested was a word that is not in the run at all. Then check `free -h` / `nvidia-smi` and `ollama ps`: **write down** whether Ollama's model is now loaded next to the image model, and whether the image model's next load refused for memory (the message points to **Unload from memory** on the Prompt builder tab; the studio never unloads Ollama's model itself).
 **c) Suggest says why it cannot.** Stop Ollama (or set a wrong address in `.env` and restart) and open the editor. **Good:** **Suggest** is **greyed with the reason beside it** (*Ollama can't be reached…*), and **typing a tag still works**. Remove `STUDIO_OLLAMA_URL` altogether: **good:** it says *Needs the Prompt builder's Ollama…*. Set `STUDIO_TAG_SUGGESTIONS=0` with Ollama running: **good:** it says Suggest is switched off.
 **d) Tags and notes on every kind of card.** Tag a picture, a track, a drawing and a reading (type `fox, winter`; use the autocomplete for a tag you used before), and write a note on one. **Good:** the chips and the note show on the card, **survive a reload**, and show on a second screen within a second or two; the same editor is in the **picture viewer** and the **Vector viewer** (button **Tags and notes**), and **Esc closes the panel before the viewer**. Search for one of the tags and for a word of the note: **good:** that run is found. Delete a run (to the bin): **good:** its tags and note stay visible there but cannot be edited; **Restore** it and edit again.
@@ -1254,21 +1382,134 @@ B's first frame is A's last, so one frame is shown twice at the join (about 0.04
 
 **Send back:** from (a) the machine's facts (`uname -m`, Python, CUDA, `uv`), which stack worked or the first error of each that did not, and the file sizes and the download seconds; from (b) the two load times and the memory; from (c) the script's summary, the ffprobe lines and your verdict on the picture and the sound; from (d) the table of lengths (exit status, seconds, peak memory, lowest `MemAvailable`, the error if any, and whether it held together), what each option changed, and whether the full "dev" checkpoint could be run and how it compared; from (e) your verdicts on the first frame, the strength values you tried and the end frame; from (f) what you saw and heard at each join, in words, and whether it got worse with the third link; from (g) the lengths the duration head chose; from (h) the audio's format and your verdict on speech, ambience, music and the voice across seeds; from (i) the `free -g` lines and what happened; and the **CSV files** (`~/ltx-experiment/*.csv`) if you want me to read the curves. No tokens or passwords, please.
 
+## 38. Vector quality: thin lines are kept and widened (new in 1.23)
+
+*Why 38: this section belongs to release 1.23, which is older than sections 34 to 37, but every number from 1 to 37 is cited by
+other files and none may move, so it takes the next free one. The status table at the top says which release each section came with.*
+
+Nothing in this section has been run on your Spark. It was added on 2026-11-17 from `docs/DESIGN.md` §41 and from reading the code; the
+steps below say only what the code does.
+
+**What changed.** The Vector tab gave you a result that kept the outline and the hair of a pencil drawing and lost the rest of the face. Two
+causes: the clean-up deleted everything narrower than the **smallest feature** (0.5 mm by default; on a 100 mm sheet drawn at 1536 pixels a
+pencil line 3 to 5 pixels wide is under it), and a stroke whose width wandered across that limit came back as dashes. Since 1.23 the clean-up
+**keeps thin lines and widens them to just over the smallest feature** (between 1 and 3 drawing pixels more, about 0.07 to 0.2 mm on a 100 mm sheet),
+so a thin stroke stays one unbroken line. A shape that is already wide enough does not move, and specks (noise) are still removed first, so noise
+does not become blots. The option is `thin_lines`: `thicken` (what a run gets when it does not say) or `drop` (the earlier behaviour: thin parts are
+removed). The colour step also reads thin dark strokes now, where it used to drop them as in-between grey.
+
+**What is not built**, so do not look for it: the **Engrave or Cut** choice, the form's **Thin lines**, **Shading** and **Dot spacing** controls,
+the **tone dots** (shading turned into a layer of dots) and the Engrave wording of the drawing's recipe. The page has no control for thin lines; the
+one related field is **Smallest feature (mm)**. Soft shading is still left out, and the studio still asks the model for flat, shadeless artwork, so how
+much fine line the model draws depends on your prompt. This section checks what the clean-up does with the lines that are there.
+
+**What §41 says was not tried:** your own source PNG (the test picture was cut from a screenshot and shrunk to about 60%, so its lines were softer
+than yours), any picture from a real Qwen run through the new clean-up, and the Spark.
+
+Update first: `git pull && docker compose up -d --build`; the title should read **v1.23** or later. There is no database change. The clean-up is on the
+CPU, so there is no new GPU work: the memory figures of section 28 (b) still apply.
+
+**a) The picture that failed, again.** On the Vector tab open a Vector run you made before 1.23 whose result lost the lines of its drawing (in the
+viewer, **The drawing** is at the left and **The vector** at the right). Press **Reuse** (the prompt, the options and the seed come back), check that **Smallest
+feature (mm)** says 0.5 (set it if not) and press **Make vector**. **Good:** the new vector keeps the fine lines of the drawing (in a face: eyes, brows, nose, lips,
+creases) as unbroken lines and not as dashes, where the old result had only the outline and the solid areas; the lines are a little bolder than in the
+drawing and never thinner than the smallest feature. The drawing itself should be the same as before, because the seed is the same; if it is not, say so,
+because that is the model and not the clean-up. **Write down** whether the vector is now a fair copy of the drawing, and what is still missing (the soft
+shading is expected to be missing).
+
+**b) What the check says it did.** Open the new version's notes (the viewer shows them under the layer table; a card with one version shows them too).
+**Good:** a note that reads like *"12 thin lines narrower than 0.5 mm were widened to 0.5 mm, so they stay one line each and the drawing keeps its
+detail."* (the number is yours). If the drawing had noise, also *"N specks smaller than 0.5 mm were removed."* The same is in the run's JSON:
+
+```bash
+RUN=$(curl -s 'localhost:8081/api/runs?limit=1' | python3 -c 'import sys, json; print(json.load(sys.stdin)["runs"][0]["id"])')
+curl -s localhost:8081/api/runs/$RUN | python3 -c 'import sys, json; c = json.load(sys.stdin)["vectors"][0]["check"]; print(c["thin_lines"], c["widened"], c["removed"]); print([n["code"] for n in c["notes"]])'
+```
+
+**Good:** it prints `thicken`, a `widened` above 0 and the counts of removed `specks` and `thin_parts`, then the note codes (`thin_widened` among them;
+`specks_removed` if there were specks).
+
+**c) Thicken against drop.** The page cannot switch it, so use the API: the same prompt and seed twice, once with each setting (use your own prompt if you like).
+Wait for each to finish, then look at both in the viewer and read the check as in (b) with each run's id.
+
+```bash
+for MODE in thicken drop; do
+  curl -s -X POST localhost:8081/api/runs -H 'Content-Type: application/json' -H 'X-Studio-Client: 1' \
+    -d "{\"mode\": \"vector\", \"prompt\": \"a pencil drawing of a face\", \"options\": {\"seed\": 7, \"thin_lines\": \"$MODE\"}}" \
+    | python3 -c 'import sys, json; r = json.load(sys.stdin); print(r["id"], r["options"].get("thin_lines"))'
+done
+```
+
+**Good:** the `thicken` run says `thicken` with a `widened` above 0 and keeps the fine lines; the `drop` run says `drop`, has `widened` 0, and loses
+or breaks them as the Vector tab did before 1.23 (DESIGN.md says the `drop` result is byte for byte what the earlier engine made; that was tested on constructed
+pictures only). **Write down** which you prefer on this picture, and the `svg_bytes` of each (in the same `check`).
+
+**d) The smallest feature.** On the form set **Smallest feature (mm)** to **0.15**, press **Reuse** on the run of (a) and make it; then **1**; then **3** (100 × 100 mm).
+**Good:** at 0.15 the lines are widened only to that width, so the vector follows the drawing more closely, and the note says 0.15 mm; at 1 the lines are bolder.
+At 3 mm the smallest feature is wider than about 30 pixels of the drawing (about 2 mm on a 100 mm sheet, whose drawing is 1536 pixels on its long side), too wide to
+widen to, so **good** is a note that reads *"Thin lines were not widened: 3 mm is too wide to widen them to on this drawing (more than 32 of its pixels), so parts
+narrower than that were removed."* and a result like the old one. **Write down** which setting gives you the best vector for the lines you care about.
+
+**e) Time.** The tracing time of each run is in the log: `docker compose logs studio | grep traced`, one line for each version (*"run … version 1 traced in 1.2s …"*).
+**Write down** it for 0.5, 0.15 and 3 mm. (DESIGN.md §41.8 reports about a second at 0.5 mm and at 0.15 mm, and about 2.5 s at the largest feature that is still widened, for a picture cut from your
+screenshot and measured without a GPU; it is not a figure for your Spark.)
+
+**f) The laser software.** Download the SVG of (a) and open it in **xTool Creative Space** and **LightBurn**, as in section 28 (e). **Good:** it measures what you asked
+for, and the thin lines are there. **Write down** whether anything looks wrong in either program that did not in the viewer.
+
+**g) An older run.** Open a Vector run from before 1.23 in the viewer. **Good:** it opens as it did before; nothing is traced again, and its check has no thin-line
+note (it was cleaned up as `drop`).
+
+**Send back:** from (a) whether the vector keeps the fine lines of its drawing and what is still missing; from (b) the note and the numbers it printed; from (c) which of
+`thicken` and `drop` you prefer and the two `svg_bytes`; from (d) the notes and your verdict at 0.15, 1 and 3 mm; from (e) the tracing seconds; from (f) what the laser
+programs showed; and anything that did not match "Good".
+
+## Troubleshooting
+
+This is the table the steps and sections point to ("see Troubleshooting"). It is at the end because it serves every part of the file.
+
+| You see | What to do |
+|---|---|
+| `unknown or invalid runtime name: nvidia` | Register NVIDIA's runtime with Docker: `sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker`. Or delete the `runtime: nvidia` line from `compose.yaml`: the GPU reservation below it is the `--gpus all` equivalent and may be enough. |
+| `could not select device driver "nvidia"` | The NVIDIA Container Toolkit isn't set up for Docker. It ships with DGX OS; check step 2. |
+| `check_image: PROBLEM: ...` (the build stops) | The line names the cause; the lines above it hold the installed versions and any traceback. Send them as step 5 says: `sed -n '/check_image: Python/,$p' build.log`. |
+| `The data directory /data is not writable by this process (uid …)` | The message ends with the exact `sudo chown` to run on `./data`. |
+| `capability check failed: ...` in the log | The message says why; the rows above and below (the runtime, the GPU, no kernels for the GB10) are the usual causes. |
+| Model pill: **Image model unavailable**, `No CUDA GPU is visible` | The container didn't get the GPU. Step 2 must work first. |
+| `no kernels for the Spark's GPU (GB10)` | Try a newer NVIDIA PyTorch release: set `NGC_TAG` in `.env` (for example `25.11-py3`), then `docker compose build`. |
+| `diffusers is installed, but QwenImage21Pipeline is only a placeholder` | transformers didn't import. `docker compose exec studio python -c 'import transformers'` shows why; send me the output. |
+| A tab or an engine says "not installed" or "unavailable", with a reason | The build's `check_image: Enlarge:`, `Vector:` and `Speech:` lines say the same thing (they are notes, never a failed build). Sections 22, 28 and 31 (a) say what to send back. |
+| Download fails with 401/403 or "gated" | Accept the model's terms on Hugging Face if it asks, then set `HF_TOKEN` in `.env` and `docker compose up -d`. |
+| `Not enough free memory to load the model` | Another model server on the Spark probably holds the memory (a vLLM container, or a model loaded in Ollama): lower its `--gpu-memory-utilization` or stop it (for Ollama, `ollama stop <model>`, or **Unload from memory** on the Prompt builder tab), then flush the page cache: `sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'`. Then **Retry**. |
+| Out of memory while loading or generating | Same as above; also try a smaller size or fewer images per click. |
+| `port is already allocated` | Something else uses 8081 (the studio's port on the Spark since 1.20; it was 8080): set another `STUDIO_PORT` in `.env`, and if your `.env` still says `STUDIO_PORT=8080`, change it to 8081. |
+| The page loads but never updates live | Check `docker compose logs studio`; the connection banner at the top says if the live stream is down. |
+
+To update later: `git pull && docker compose up -d --build`.
+
 ## What to send back
 
-Paste these into the chat (no tokens or passwords; check before pasting):
+Paste these into the chat (no tokens or passwords; check before pasting). The numbers are fixed, because other files cite them; the groups only help you find your place.
+
+**Part 1, the first run (items 1 to 5)**
 
 1. The `check_image:` lines from step 5.
 2. The first ~30 lines of `docker compose logs studio` after step 6.
 3. The timings from step 8 and the numbers **A**, **B** from step 9.
 4. Anything that didn't match "Good", with the message the page or the log showed.
 5. Whether transparent output really had transparency (step 10).
+
+**Part 2, releases 1.1 to 1.7 (items 6 to 11)**
+
 6. The numbers from step 14: seconds from clicking **Stop generating** to the card saying **Canceled**, and the memory before and after.
 7. The numbers and observations from step 15 (edits through the API).
 8. The numbers from step 16: the time of a draft and of a run at each scale, and how the draft looks.
 9. From step 17: the two times, and how different the small and the regenerated pictures are.
 10. From step 18 (the Spark test for edits, M5c): the times and memory for each case, whether the model followed "image 1" and "image 2", what it did with a transparent picture, which mask colour worked, and the numbers you suggest for the cap and the cost warning.
 11. From step 19: how long Load model takes (first time and cached), how much memory it takes and how much Unload gives back, and anything that did not match "Good".
+
+**Part 2, releases 1.8 to 1.15 (items 12 to 19)**
+
 12. From step 20 a) to i) (the music model, the first real run): the download size and time, the load time, the seconds of work per second of music at 15, 60 and (if you can) 180 seconds, the lowest available memory, whether the track was instrumental with the tag alone, whether the same seed repeats, how fast Ctrl+C stopped it, whether anything downloaded after the first time, and anything that did not match "Good".
 13. From step 20 j) to n) (the Music tab on the Spark): the numbers from (k), (l) and (m), whether the track played and seeked on your phone, and a screenshot of anything on the phone that did not fit.
 14. From step 21 (Make 4K): the seconds and the file size from (a) and for a square in (c), what you thought of the picture in (b), whether the rotation of a phone photo and the refusals in (c3) were right, the time for a 12 MP photo in (c3), whether a running job slowed down in (d), and anything that did not match "Good". From (i), if you ran it: the whole probe output and which of the two 4K files looks better to you, and where.
@@ -1277,6 +1518,9 @@ Paste these into the chat (no tokens or passwords; check before pasting):
 17. From step 24 (the bin): the `ls -l data/studio.sqlite*` line, what the first clean-up put in Deleted, and anything that did not match "Good".
 18. From step 25 (project folders): the `ls -l data/studio.sqlite*` line, and anything that did not match "Good".
 19. From step 26 (deleting one picture): the `ls -l data/studio.sqlite*` line, what (c) showed, and anything that did not match "Good".
+
+**Part 2, releases 1.16 to 1.22 (items 20 to 26)**
+
 20. From step 27 (the default size): the time and the memory numbers (A, B, `worker_rss_gb`) for one run at 2752 × 1536 and one at 2048 × 2048 from (c), whether the note in (b) appeared, and anything that did not match "Good".
 21. From step 28 (Vector): the `Vector:` line from (a), the seconds of the drawing and of the tracing and the memory numbers from (b), the notes from (c) with a screenshot if the drawing had shading or gradients, what XCS and LightBurn showed in (e) (and the laser test sheet's six answers, `DESIGN.md` §31.9 item 1), your verdict on side by side against stacked in (f), and anything that did not match "Good".
 22. From step 29 (Vector versions, the stack view, pictures by paste): the `ls -l data/studio.sqlite*` line, your judgement of the trace against the drawing in (b), the three back-sheet results and your verdict in (d), what XCS and LightBurn showed of the stacked layers in (e), which browsers and devices did and did not take a pasted picture in (g) to (j), and from (k) the times, the memory numbers, whether eight pictures ran, whether the model follows "image 7" and "image 8", and the numbers you suggest for the limit and the cost warning.
@@ -1284,7 +1528,14 @@ Paste these into the chat (no tokens or passwords; check before pasting):
 24. From step 31 (the Speech tab): the `ls -l data/studio.sqlite*` line, the engine pills and the download and load times from (a) and (b), the accent you hear in Jenny, the seconds of work per second of audio and the lowest memory for each engine from (d), **whether there was any gap, click or pitch change between paragraphs when a reading was played as it was made**, the seek time from (e), the book's time and disk use and what the restart showed from (f), whether the place and the lock screen worked on your phone from (g) and (h), your judgement of the style, the designed voices and the clone from (i), the Voxtral numbers from (j), the swap times and memory from (k), and anything that did not match "Good".
 25. From section 32 (load progress): the two sizes of a first download (the `total_bytes` and the folder on disk), whether `done_bytes` rose steadily or in steps, the load times from disk, any `total_bytes` that was wrong, and what the page showed (h).
 26. From section 33 (reordering the queue): whether the jobs ran in the order the Queue panel showed (b) and (c), what a reading that had started looked like (d), whether the other screen followed (f), your thumb's verdict on the grip (g), and the model swap time (h).
+
+**Part 2, releases 1.24 to 1.27 (items 27 to 30)**
+
 27. From section 34 (More like this, compare, and the experiment): the `ls -l data/studio.sqlite*` line, the time and your verdict on the takes from (a), anything that did not match "Good" in (c) and (d), whether the other screen followed (e), your verdict on side by side against the slider and your thumb's from (f), a screenshot of anything that did not fit from (g), and, if you ran the experiment (h), the five pictures' verdicts and the times.
 28. From section 35 (audiobook polish for Speech): the `check_image:` ffmpeg line and the `ls -l data/studio.sqlite*` line, the table of which respellings worked in which engine from (b), your verdict on the voice changes and on the pause between speakers and the times from (d), any false alarm from (e), whether the chapter times matched by ear in (f), the M4B's build time and size and, for each player, whether the chapters and the resume worked from (g), and a screenshot of anything on the phone that did not fit.
 29. From section 36 (search and tags): the `ls -l data/studio.sqlite*` line and the indexing line from the log, the runs that were not found in (a), the seconds and your verdict on the tags and the memory numbers from (b), the three greyed messages from (c), the time zones and any run on the wrong side of midnight from (f), a screenshot of anything on the phone that did not fit, and anything that did not match "Good".
 30. From section 37 (LTX-2.5, the experiment before the Video tab): the machine's facts and which stack installed (or the first error of each that did not) and the file sizes and download times from (a), the load times and memory from (b), the script's summary and your verdict on the picture and the sound from (c), the table of lengths with its errors and what each option changed from (d) (and whether the full checkpoint could be run), your verdicts on the first frame, the strengths and the end frame from (e), what you saw and heard at each join and whether the third link was worse from (f), the lengths the duration head chose from (g), the audio format and your verdict on speech, ambience, music and the voice across seeds from (h), the `free -g` lines and what happened from (i), and the CSV files if you want the curves read.
+
+**Part 2, release 1.23 (item 31, added 2026-11-17)**
+
+31. From section 38 (Vector, thin lines kept and widened): whether the vector of (a) keeps the fine lines of its drawing and what is still missing, the note and the numbers from (b), which of `thicken` and `drop` you prefer and the two `svg_bytes` from (c), the notes and your verdict at 0.15, 1 and 3 mm from (d), the tracing seconds from (e), what the laser programs showed in (f), and anything that did not match "Good".
