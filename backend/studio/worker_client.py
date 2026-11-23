@@ -43,8 +43,8 @@ def worker_env(settings: Optional[Settings] = None, kind: str = "image", engine:
 
 class WorkerClient:
     def __init__(self, settings: Settings, on_event: Callable[[dict[str, Any]], None], kind: str = "image", engine: str = "", variant: str = ""):
-        self.kind = kind  # "image", "music" or "speech": which model this worker process holds
-        self.engine = engine  # a speech worker holds one engine in one of its variants (DESIGN.md §38.3); empty for the others
+        self.kind = kind  # "image", "music", "speech" or "video": which model this worker process holds
+        self.engine = engine  # a speech or video worker holds one engine in one of its variants (DESIGN.md §38.3, §46.6); empty for the others
         self.variant = variant
         self._settings = settings
         self._on_event = on_event
@@ -59,12 +59,15 @@ class WorkerClient:
             "--kind", self.kind,
             "--pipeline", s.pipeline,
             "--data-dir", str(s.data_dir),
-            "--model", s.music_model if self.kind == "music" else s.speech_model_for(self.engine) if self.kind == "speech" else s.model,
+            # a video engine has no model id of its own: its files are found from the engine config below
+            "--model", s.music_model if self.kind == "music" else s.speech_model_for(self.engine) if self.kind == "speech" else "" if self.kind == "video" else s.model,
             "--hub-mode", s.hub_mode,
             "--fake-step-delay-ms", str(s.fake_step_delay_ms),
         ]
         if self.kind == "speech":
             cmd += ["--engine", self.engine, "--variant", self.variant]
+        if self.kind == "video":  # the engine and its quality, and what the server knows of the environment the engine runs in (DESIGN.md §46.6)
+            cmd += ["--engine", self.engine, "--variant", self.variant, "--engine-config", json.dumps(s.video_engine_config(), separators=(",", ":"))]
         if s.cpu_offload:
             cmd.append("--cpu-offload")
         if probe:

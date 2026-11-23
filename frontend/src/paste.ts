@@ -66,13 +66,14 @@ export type PasteRoute =
   | { kind: "tray"; files: File[] } // the Images tab's pictures (Edit's tray, or Generate, which switches to Edit)
   | { kind: "upscale"; files: File[] } // Upscale a picture…, which has the focus
   | { kind: "builder"; files: File[] } // the Prompt builder tab: a picture for the chat (DESIGN.md §37.3 rule 13)
+  | { kind: "video"; files: File[] } // the Video tab: the first picture is the clip's start picture (DESIGN.md §46.11)
   | { kind: "wrong-tab" }; // Music, Vector or Speech: no pictures are used there, and the page says so
 
 export interface PasteFacts {
   files: File[]; // the pictures on the clipboard
   plainText: boolean; // and the clipboard also holds text
   target: Element | null; // where the cursor was: the element that has the focus
-  tab: "images" | "music" | "vector" | "builder" | "speech";
+  tab: "images" | "music" | "vector" | "builder" | "speech" | "video";
   modalOpen: boolean; // a dialog, the Options drawer or a viewer is open
   ready: boolean; // the page knows what the server can do
 }
@@ -82,7 +83,7 @@ const IGNORE: PasteRoute = { kind: "ignore" };
 /** Where a paste goes (§36.2, §36.3). In this order:
  *  1. A paste with no picture is never touched, in any field: the browser pastes the text.
  *  2. While a dialog, the drawer or a viewer is open nothing is added: focus is held there and the picture would land where it could not be seen.
- *  3. On the Music, Vector and Speech tabs a picture is not taken; the page says where pictures are used. (In a text field with text beside the picture, the text
+ *  3. On the Video tab a picture is the clip's start picture (in a text field with text beside it, the text is what was meant). On the Music, Vector and Speech tabs a picture is not taken; the page says where pictures are used. (In a text field with text beside the picture, the text
  *     is what the person meant, and goes in without a word.)
  *  4. On the Images tab, in the prompt box the picture wins over text; in another text field it is taken only if the clipboard has no plain text.
  *  5. With Upscale a picture… focused, the picture goes there, and only there; anywhere else on the page (the bare page, a button) it goes to the tray. */
@@ -92,6 +93,7 @@ export function routePaste(facts: PasteFacts): PasteRoute {
   if (modalOpen) return IGNORE;
   const inField = isTextField(target);
   if (tab === "builder") return inField && plainText && target?.id !== BUILDER_INPUT_ID ? IGNORE : { kind: "builder", files };
+  if (tab === "video") return inField && plainText ? IGNORE : { kind: "video", files }; // as the Images tab's boxes: text beside the picture is the text the person meant
   if (tab !== "images") return inField && plainText ? IGNORE : { kind: "wrong-tab" };
   if (inField && target?.id !== PROMPT_ID && plainText) return IGNORE;
   if (target?.closest(`[${UPSCALE_MARK}]`)) return { kind: "upscale", files };

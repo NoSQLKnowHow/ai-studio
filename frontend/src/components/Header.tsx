@@ -21,7 +21,7 @@ function pillLabel(state: WorkerState, model: ModelName): string {
     case "ready":
       return `${name} ready`;
     case "busy":
-      return model === "music" ? "Making music" : model === "speech" ? "Making a reading" : "Generating";
+      return model === "music" ? "Making music" : model === "speech" ? "Making a reading" : model === "video" ? "Making a clip" : "Generating";
     case "error":
       return `${name} problem`;
     case "unavailable":
@@ -50,6 +50,7 @@ const EXPLAIN: Record<WorkerState, string> = {
 
 function pipelineName(w: WorkerStatus): string {
   if (w.model === "speech") return w.pipeline === "fake" ? "Test pipeline (fake speech, no GPU)" : `Speech engine: ${w.engine ?? "none"}`;
+  if (w.model === "video") return w.pipeline === "fake" ? "Test pipeline (fake video, no GPU)" : "LTX-2.5 (video program)";
   if (w.model === "music") return w.pipeline === "fake" ? "Test pipeline (fake music, no GPU)" : MUSIC_MODEL_NAME;
   return w.pipeline === "fake" ? "Test pipeline (fake images, no GPU)" : "Qwen-Image-2.1";
 }
@@ -75,7 +76,7 @@ function ModelPill({ status, now, pillRef }: { status: Status | null; now: numbe
   const w = status.worker;
   const until = w.state === "ready" ? untilText(w.unload_at, now) : null;
   const mem = status.memory;
-  const needs = w.model === "music" ? mem.music_min_free_gb : mem.min_free_gb;
+  const needs = w.model === "music" ? mem.music_min_free_gb : w.model === "video" ? mem.video_min_free_gb ?? null : mem.min_free_gb;
   const full = pillLabel(w.state, w.model);
   const load = loadView(w); // while a model loads: how far it has got (DESIGN.md §39), as a short word for the pill and in full in its panel
 

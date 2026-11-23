@@ -22,15 +22,17 @@ from typing import Any, Iterator, Mapping, Optional, Sequence
 
 from .builder.schema import BUILDER_SCHEMA, PROMPT_SEARCH_SQL
 from .speech.schema import SPEECH_SCHEMA
+from .video.schema import VIDEO_SCHEMA
 from .projects import name_key as project_name_key
 from .runfilter import KINDS, RunFilter
 from .runsearch import FACETS_LISTED, RUN_ANNOTATION_SCHEMA, RUN_HEIGHT, RUN_SEARCH_SQL, RUN_WIDTH, TAGS_LISTED, index_fields
 
+# 14: mode 'video' (the runs table is rebuilt once more, as at 3, 7 and 10) and the Video tab's tables, videos, video_segments and video_speeds (§46.9);
 # 13: the tables of tags, notes and the word index over runs (run_tags, run_notes, run_search; DESIGN.md §45.7), added to the end, so no run is touched; 12: speech_pieces.speaker and the speech_pronunciations table (§44.6);
 # 11: runs.variation_json and runs.family_id (§43.4); 10: mode 'speech', runs.queue_key and runs.hidden, and the Speech tab's tables (§38.8); 9: the Prompt builder's tables and runs.prompt_id, runs.prompt_version (§37.4); 8: vectors.deleted_at, for a single version of a Vector run in the bin (DESIGN.md §35.4); 7: mode 'vector' and the vectors table (§31.12.6); 6: images.deleted_at and tracks.deleted_at, for a single picture in the bin (§33.3);
 # 5: the projects table and runs.project_id, for project folders (§32.4); 4: runs have deleted_at and restored_at, for the bin (§30);
 # 3: mode 'music', lyrics, tracks (§26.5)
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 log = logging.getLogger("studio.db")
 
 # A run that is no longer queued or running. Only such a run can have a single picture sent to the bin (DESIGN.md §33.2 item 1).
@@ -50,7 +52,7 @@ CREATE TABLE IF NOT EXISTS runs (
     started_at       TEXT,
     finished_at      TEXT,
     status           TEXT NOT NULL CHECK (status IN ('queued','running','done','failed','canceled')),
-    mode             TEXT NOT NULL CHECK (mode IN ('generate','edit','music','vector','speech')),
+    mode             TEXT NOT NULL CHECK (mode IN ('generate','edit','music','vector','speech','video')),
     prompt           TEXT NOT NULL,
     effective_prompt TEXT NOT NULL,
     negative_prompt  TEXT,
@@ -156,7 +158,7 @@ CREATE TABLE IF NOT EXISTS run_inputs (
     role      TEXT NOT NULL DEFAULT 'reference' CHECK (role IN ('reference','marked','mask')),
     PRIMARY KEY (run_id, position)
 );
-""" + BUILDER_SCHEMA + SPEECH_SCHEMA + RUN_ANNOTATION_SCHEMA
+""" + BUILDER_SCHEMA + SPEECH_SCHEMA + RUN_ANNOTATION_SCHEMA + VIDEO_SCHEMA
 
 INTERRUPTED_MESSAGE = "Interrupted by a server restart."
 
@@ -194,10 +196,11 @@ class Database:
             if previous is not None and previous < SCHEMA_VERSION:
                 self._copy_before_migration(path, previous)
             self._conn.executescript(_SCHEMA)  # creates what is missing: tables and indexes of a newer schema
-            # Schemas 3, 7 and 10 each widen the CHECK on runs.mode ('music', then 'vector', then 'speech'), which SQLite cannot alter in place, so an older
-            # database's table is rebuilt once, to the current definition, whichever older schema it was at (a rebuild at 10 also does what a rebuild at 7
-            # or at 3 would have). The two columns schema 10 adds come with the new definition; `_add_speech_columns` is for a table that is already new enough.
-            if previous is not None and previous < 10:
+            # Schemas 3, 7, 10 and 14 each widen the CHECK on runs.mode ('music', then 'vector', then 'speech', then 'video'), which SQLite cannot alter in place, so an older
+            # database's table is rebuilt once, to the current definition, whichever older schema it was at (a rebuild at 14 also does what a rebuild at 10, 7
+            # or 3 would have). The columns schemas 4 to 13 added are carried, not listed (see `_rebuild_runs`); `_add_speech_columns` and the others are for a table that is
+            # already new enough, and make again the indexes the rebuild dropped.
+            if previous is not None and previous < 14:
                 self._rebuild_runs(previous)
             self._add_bin_columns()
             self._add_project_column()
@@ -244,7 +247,7 @@ class Database:
             "(an older studio can only be run against that copy)", previous, SCHEMA_VERSION, target)
 
     def _rebuild_runs(self, previous: int) -> None:
-        """Schemas 3 and 7: let `runs` hold the newer modes ('music', then 'vector'). SQLite cannot change a CHECK in place, so this is its documented way:
+        """Schemas 3, 7, 10 and 14: let `runs` hold the newer modes ('music', then 'vector', 'speech', 'video'). SQLite cannot change a CHECK in place, so this is its documented way:
         a new table, copy, drop the old, rename. The new table is made from this module's own definition, so a database migrated here and one made fresh
         are the same.
 
@@ -762,6 +765,8 @@ class Database:
             c.execute("DELETE FROM images WHERE run_id=?", (run_id,))
             c.execute("DELETE FROM tracks WHERE run_id=?", (run_id,))
             c.execute("DELETE FROM vectors WHERE run_id=?", (run_id,))
+            for table in ("videos", "video_segments"):  # a clip's rows (the cascade would do it; every table is named here as the others are)
+                c.execute(f"DELETE FROM {table} WHERE run_id=?", (run_id,))
             for table in ("speech_pieces", "speech_parts", "speech_positions"):  # a reading's rows (the cascade would do it; every table is named here as the others are)
                 c.execute(f"DELETE FROM {table} WHERE run_id=?", (run_id,))
             c.execute("DELETE FROM runs WHERE id=?", (run_id,))

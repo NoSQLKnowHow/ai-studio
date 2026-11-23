@@ -17,6 +17,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from . import presets as P
 from . import vector as V
 from .config import Settings
+from .video import registry as video_registry
+from .video.options import ONLY_FOR_VIDEO, VideoSpec, check_video
 
 _ID = re.compile(r"^[0-9a-f]{32}$")
 
@@ -66,6 +68,17 @@ class RunOptions(BaseModel):
     kerf_mm: Optional[float] = None
     thin_lines: Optional[str] = None  # `thicken` (the default) or `drop`: what happens to a stroke narrower than the smallest feature (DESIGN.md §41.3)
     recipe: Optional[str] = None  # the page's edited text for what the studio sends; None means the server builds it (`vector.build_recipe`)
+    # Video only (DESIGN.md §46.10). Each is None when not sent, and the server then uses the default; the text ones are plain strings and not Literals so that `video.options.check_video`
+    # can refuse a wrong one in its own words. `width`, `height` and `seed` are the ones every mode has (the clip's size, and its seed).
+    mode: Optional[str] = None  # `text` or `image`: Text to video, or Image to video (which needs a start picture); None = image if a picture was sent, else text
+    quality: Optional[str] = None  # `draft` (the distilled model)
+    seconds: Optional[float] = None  # the length; the server works out the frames (8n + 1)
+    frames: Optional[int] = None  # or the frames themselves, which must already be 8n + 1 (not together with seconds)
+    fps: Optional[int] = None
+    sound: Optional[str] = None  # "what you hear": dialogue, ambience, music, joined to the prompt for the model
+    keep_sound: Optional[bool] = None  # false takes the sound out of the saved file (it does not make the clip cheaper)
+    segments: Optional[int] = None  # a clip made in one pass: 1
+    strength: Optional[float] = None  # how firmly the start picture is held to (1.0 as tried on the Spark)
 
 
 class InputRef(BaseModel):
@@ -103,7 +116,7 @@ class VariationOf(BaseModel):
 class RunCreate(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    mode: Literal["generate", "edit", "music", "vector"] = "generate"
+    mode: Literal["generate", "edit", "music", "vector", "video"] = "generate"
     prompt: str
     options: RunOptions = Field(default_factory=RunOptions)
     input_images: Optional[list[InputRef]] = None  # Edit only, in the order the model sees them
@@ -115,12 +128,14 @@ class RunCreate(BaseModel):
 class RunRequestError(Exception):
     """One or more fields failed validation. Rendered like FastAPI's own 422 errors."""
 
-    def __init__(self, errors: list[tuple[tuple[Any, ...], str]]):
-        super().__init__("; ".join(msg for _, msg in errors))
+    def __init__(self, errors: list[tuple[Any, ...]]):
+        super().__init__("; ".join(error[1] for error in errors))
         self.errors = errors
 
     def detail(self) -> list[dict[str, Any]]:
-        return [{"loc": ["body", *loc], "msg": msg, "type": "value_error"} for loc, msg in self.errors]
+        """Each error as FastAPI's own are shaped: where, the words, and a type. A video error may carry a third item, its code (`bad_size`, `bad_frames`, `too_long`, ...), which becomes
+        the type; every other error is a `value_error`."""
+        return [{"loc": ["body", *error[0]], "msg": error[1], "type": error[2] if len(error) > 2 else "value_error"} for error in self.errors]
 
 
 @dataclass(frozen=True)
@@ -150,6 +165,7 @@ class ResolvedRun:
     vector: Optional[V.VectorOptions] = None
     prompt_ref: Optional[PromptRef] = None  # the saved prompt and version this run is made from (§37.4); checked and recorded when it is queued
     variation_of: Optional[VariationOf] = None  # the run this one is More like this of (§43.6); checked and recorded when it is queued
+    video: Optional[VideoSpec] = None  # Video: the clip as asked for, every default filled in (§46.9); `prompt` is what happens, `effective_prompt` what the model is sent
 
     @property
     def instrumental(self) -> bool:
@@ -187,6 +203,9 @@ class ResolvedRun:
                 "draw_width": self.width,
                 "draw_height": self.height,
             }
+        if self.mode == "video":
+            assert self.video is not None  # a video run always has it
+            return self.video.options_snapshot()
         if self.mode == "music":
             return {
                 "duration": self.duration,
@@ -218,6 +237,11 @@ class ResolvedRun:
 # The options that mean something only for a Vector run: sending one with another kind of run is a mistake the page should hear about, as it is for
 # the music options in `resolve_run`.
 _ONLY_FOR_VECTOR = ("colours", "palette", "kind", "width_mm", "height_mm", "layers_by", "arrangement", "stack_order", "bleed_mm", "min_feature_mm", "kerf_mm", "thin_lines", "recipe")
+
+
+def _video_only_errors(sent: set[str]) -> list[tuple[tuple[Any, ...], str]]:
+    """The 422 field errors for any Video-only option that was sent with a run that is not a Video run."""
+    return [(("options", name), "Only used for Video.") for name in ONLY_FOR_VIDEO if name in sent]
 
 
 def _vector_only_errors(sent: set[str]) -> list[tuple[tuple[Any, ...], str]]:
@@ -277,6 +301,7 @@ def _resolve_music(req: RunCreate, settings: Settings) -> ResolvedRun:
         if name in sent:
             errors.append((("options", name), "Not used for music."))
     errors.extend(_vector_only_errors(sent))
+    errors.extend(_video_only_errors(sent))
     if req.input_images:
         errors.append((("input_images",), "Images are only used in Edit mode."))
     if errors:
@@ -386,6 +411,7 @@ def _resolve_vector(req: RunCreate, settings: Settings) -> ResolvedRun:
     for name in _NOT_FOR_VECTOR:
         if name in sent:
             errors.append((("options", name), "Not used for Vector."))
+    errors.extend(_video_only_errors(sent))
     if req.lyrics is not None:
         errors.append((("lyrics",), "Lyrics are only used for music."))
     if req.input_images:
@@ -439,7 +465,27 @@ def resolve_run(req: RunCreate, settings: Settings) -> ResolvedRun:
     return resolved
 
 
+def _resolve_video(req: RunCreate, settings: Settings) -> ResolvedRun:
+    """A video run (DESIGN.md §46.10): what happens, the options of a clip (checked by `video.options.check_video`, which is where the rules and the words of their errors are), and
+    the start picture, if any, which is checked when the run is queued (the upload or image it names must exist). A run's `prompt` is what happens; what the model is sent is that
+    joined with what you hear."""
+    info = video_registry.info(video_registry.primary(settings.pipeline))
+    spec, problems = check_video(prompt=req.prompt, sent=req.options.model_fields_set, opts=req.options, pictures=len(req.input_images or []), info=info,
+                                 max_seconds=settings.video_max_seconds, max_prompt_chars=settings.max_prompt_chars)
+    errors: list[tuple[Any, ...]] = list(problems)
+    if req.lyrics is not None:
+        errors.append((("lyrics",), "Lyrics are only used for music.", "value_error"))
+    if errors or spec is None:
+        raise RunRequestError(errors)
+    return ResolvedRun(
+        mode="video", prompt=req.prompt.strip(), effective_prompt=spec.effective_prompt, negative_prompt=None, width=spec.width, height=spec.height, steps=8, seed=spec.seed,
+        seed_was_random=spec.seed_was_random, num_images=1, cfg_scale=None, transparent=False, inputs=tuple(req.input_images or ()), video=spec,
+    )
+
+
 def _resolve_run(req: RunCreate, settings: Settings) -> ResolvedRun:
+    if req.mode == "video":
+        return _resolve_video(req, settings)
     if req.mode == "music":
         return _resolve_music(req, settings)
     if req.mode == "vector":
@@ -448,6 +494,7 @@ def _resolve_run(req: RunCreate, settings: Settings) -> ResolvedRun:
     opts = req.options
     sent = opts.model_fields_set
     errors.extend(_vector_only_errors(sent))
+    errors.extend(_video_only_errors(sent))
     for name in ("duration", "tracks", "fields"):
         if name in sent:
             errors.append((("options", name), "Only used for music."))

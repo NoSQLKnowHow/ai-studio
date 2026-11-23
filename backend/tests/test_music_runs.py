@@ -12,7 +12,7 @@ import wave
 from pathlib import Path
 
 import pytest
-from conftest import close, create_run, wait_for, wait_for_worker_state, hold_speech_out
+from conftest import close, create_run, wait_for, wait_for_worker_state, hold_speech_out, hold_video_out
 
 from studio import wavfile
 from studio.pipelines.fake_music import FRAMES, MAX_SECONDS, RENDER_STEPS, SAMPLE_RATE
@@ -71,6 +71,7 @@ def test_the_music_tab_is_offered_and_its_limits_are_published(client, monkeypat
     # would then fail for a reason that has nothing to do with music. What `modes` says about Vector is tested in test_vector_server_caps.py.
     monkeypatch.setattr("studio.vector.available", lambda: (False, "held out: this test is about music", None))
     hold_speech_out(monkeypatch)  # and so is the Speech tab, for the same reason
+    hold_video_out(monkeypatch)  # and the Video tab (1.27)
     caps = client.get("/api/capabilities").json()
     deadline = time.monotonic() + 15
     while "music" not in caps["modes"]:  # the start-up check of the music pipeline runs in the background
@@ -466,7 +467,8 @@ def test_a_music_run_does_not_count_against_a_pictures_limits(client):
 
 
 # ------------------------------------------------------------------ two things a music worker must not disturb
-def test_the_image_capabilities_do_not_change_when_the_music_worker_has_been_loaded(client):
+def test_the_image_capabilities_do_not_change_when_the_music_worker_has_been_loaded(client, monkeypatch):
+    hold_video_out(monkeypatch)  # the Video tab's own start-up check may finish between the two reads, which is not what this is about
     before = client.get("/api/capabilities").json()
     deadline = time.monotonic() + 15
     while "music" not in before["modes"]:  # the start-up checks run in the background: wait for both to finish

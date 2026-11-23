@@ -12,6 +12,9 @@
     <data>/vector/<run>/<idx>-source.png    the drawing the image model made for one version of a vector run (moved here from images/<run>/,
                                             DESIGN.md §31.12.5), and beside it what the clean-up made of it:
     <data>/vector/<run>/<idx>.svg, <idx>-layers.zip, <idx>.png    the combined SVG, one SVG for each layer in a ZIP, and the 1024 px preview
+    <data>/video/<run>/clip.mp4, poster.jpg    a video run's clip (H.264 and AAC, the index at the front) and its first frame (DESIGN.md §46.9); beside them, while it is made,
+                                            start.png (the start picture made the clip's own size) and engine-out.mp4 (what the program wrote, before it is finished)
+    <data>/thumbs/<run>/video.webp     the clip's thumbnail
 
 All file access is by database id; paths reported by the worker are checked to be
 inside the run's own folder before they are trusted.
@@ -61,6 +64,7 @@ class Storage:
         self.audio = self.root / "audio"
         self.vector = self.root / "vector"
         self.speech = self.root / "speech"  # readings, voices and samples (DESIGN.md §38.8)
+        self.video = self.root / "video"  # clips (DESIGN.md §46.9)
         self.thumbs = self.root / "thumbs"
         self.inputs = self.root / "inputs"
         self.staged = self.inputs / "staged"
@@ -68,7 +72,7 @@ class Storage:
 
     def ensure_layout(self) -> None:
         try:
-            for directory in (self.root, self.images, self.audio, self.vector, self.speech, self.thumbs, self.inputs, self.staged, self.staged_thumbs):
+            for directory in (self.root, self.images, self.audio, self.vector, self.speech, self.video, self.thumbs, self.inputs, self.staged, self.staged_thumbs):
                 directory.mkdir(parents=True, exist_ok=True)
             with tempfile.TemporaryFile(dir=self.root):
                 pass
@@ -99,6 +103,19 @@ class Storage:
     def vector_dir(self, run_id: str) -> Path:
         """Where a vector run keeps its drawings and what was made of them (DESIGN.md §31.12.6)."""
         return self.vector / check_id(run_id)
+
+    def video_dir(self, run_id: str) -> Path:
+        """Where a video run keeps its clip, its poster and what is made on the way (DESIGN.md §46.9)."""
+        return self.video / check_id(run_id)
+
+    def accept_worker_video(self, rel: str, run_id: str) -> Path:
+        """Validate a path reported by the worker for a clip: an existing file inside this run's own video folder."""
+        path = self.abs(rel)
+        if path.parent != self.video_dir(run_id).resolve():
+            raise StorageError(f"Worker reported a clip outside the run folder: {rel!r}")
+        if not path.is_file():
+            raise StorageError(f"Worker reported a missing clip file: {rel!r}")
+        return path
 
     def drawing_path(self, run_id: str, idx: int) -> Path:
         """The drawing the image model made for one version of a vector run: `<idx>-source.png` in the run's vector folder (DESIGN.md §31.12.5). It has no
@@ -187,6 +204,7 @@ class Storage:
         shutil.rmtree(self.images / run_id, ignore_errors=True)
         shutil.rmtree(self.audio / run_id, ignore_errors=True)
         shutil.rmtree(self.vector / run_id, ignore_errors=True)
+        shutil.rmtree(self.video / run_id, ignore_errors=True)  # a clip, its poster and anything half made (DESIGN.md §46.9)
         shutil.rmtree(self.speech / "readings" / run_id, ignore_errors=True)
         # a reading deleted for good takes its audiobook files (and any half-made one) with it (DESIGN.md §44.4)
         for audiobook in self.audiobooks_dir.glob(f"{run_id}-*"):

@@ -1,0 +1,968 @@
+{
+  "capabilities_video": {
+    "available": true,
+    "chaining": {
+      "available": false,
+      "reason": "A clip is made in one pass; joining several is not built yet."
+    },
+    "clips_bytes": 0,
+    "engine": {
+      "default_variant": "distilled",
+      "id": "fake",
+      "image_to_video": true,
+      "interruptible": true,
+      "licence": {
+        "name": "Test licence",
+        "noncommercial": false,
+        "notice": "Made with the fake video engine.",
+        "revision": "fake-1",
+        "statement": "I have read the test licence and my use of this test clip is covered by it.",
+        "summary": "A stand-in for the real licence's summary, so that the page's licence panel has something to show in a test.",
+        "url": "https://example.org/test-licence"
+      },
+      "memory_gb": 0.1,
+      "model_id": "fake-video",
+      "notes": "A stand-in that makes a test clip with ffmpeg.",
+      "sound": true,
+      "title": "Fake video",
+      "variants": [
+        "distilled",
+        "dev"
+      ]
+    },
+    "hint": null,
+    "licence": {
+      "accepted": true,
+      "accepted_at": "2026-11-23T20:28:39.324Z",
+      "name": "Test licence",
+      "noncommercial": false,
+      "notice": "Made with the fake video engine.",
+      "outdated": false,
+      "revision": "fake-1",
+      "statement": "I have read the test licence and my use of this test clip is covered by it.",
+      "summary": "A stand-in for the real licence's summary, so that the page's licence panel has something to show in a test.",
+      "url": "https://example.org/test-licence"
+    },
+    "memory": {
+      "message": null,
+      "ok": true
+    },
+    "qualities": [
+      {
+        "available": true,
+        "id": "draft",
+        "label": "Draft",
+        "reason": null
+      },
+      {
+        "available": false,
+        "id": "final",
+        "label": "Final",
+        "reason": "Not tried on this machine yet."
+      }
+    ],
+    "reason": null,
+    "state": "ready",
+    "tools": {
+      "ffmpeg": true,
+      "ffprobe": true
+    }
+  },
+  "capabilities_video_unaccepted": {
+    "available": true,
+    "chaining": {
+      "available": false,
+      "reason": "A clip is made in one pass; joining several is not built yet."
+    },
+    "clips_bytes": 0,
+    "engine": {
+      "default_variant": "distilled",
+      "id": "fake",
+      "image_to_video": true,
+      "interruptible": true,
+      "licence": {
+        "name": "Test licence",
+        "noncommercial": false,
+        "notice": "Made with the fake video engine.",
+        "revision": "fake-1",
+        "statement": "I have read the test licence and my use of this test clip is covered by it.",
+        "summary": "A stand-in for the real licence's summary, so that the page's licence panel has something to show in a test.",
+        "url": "https://example.org/test-licence"
+      },
+      "memory_gb": 0.1,
+      "model_id": "fake-video",
+      "notes": "A stand-in that makes a test clip with ffmpeg.",
+      "sound": true,
+      "title": "Fake video",
+      "variants": [
+        "distilled",
+        "dev"
+      ]
+    },
+    "hint": null,
+    "licence": {
+      "accepted": false,
+      "accepted_at": null,
+      "name": "Test licence",
+      "noncommercial": false,
+      "notice": "Made with the fake video engine.",
+      "outdated": false,
+      "revision": "fake-1",
+      "statement": "I have read the test licence and my use of this test clip is covered by it.",
+      "summary": "A stand-in for the real licence's summary, so that the page's licence panel has something to show in a test.",
+      "url": "https://example.org/test-licence"
+    },
+    "memory": {
+      "message": null,
+      "ok": true
+    },
+    "qualities": [
+      {
+        "available": true,
+        "id": "draft",
+        "label": "Draft",
+        "reason": null
+      },
+      {
+        "available": false,
+        "id": "final",
+        "label": "Final",
+        "reason": "Not tried on this machine yet."
+      }
+    ],
+    "reason": null,
+    "state": "ready",
+    "tools": {
+      "ffmpeg": true,
+      "ffprobe": true
+    }
+  },
+  "counts": {
+    "all": 6,
+    "deleted": 0,
+    "deleted_items": 0,
+    "kept": 0
+  },
+  "facets": {
+    "models": [
+      {
+        "count": 6,
+        "value": "fake-video \u00b7 distilled"
+      }
+    ],
+    "sizes": []
+  },
+  "licence_answer": {
+    "accepted": true,
+    "accepted_at": "2026-11-23T20:28:39.324Z",
+    "name": "Test licence",
+    "noncommercial": false,
+    "notice": "Made with the fake video engine.",
+    "outdated": false,
+    "revision": "fake-1",
+    "statement": "I have read the test licence and my use of this test clip is covered by it.",
+    "summary": "A stand-in for the real licence's summary, so that the page's licence panel has something to show in a test.",
+    "url": "https://example.org/test-licence"
+  },
+  "licence_refusal": {
+    "code": "licence_not_accepted",
+    "detail": "You need to acknowledge the video model's licence before a clip can be made.",
+    "hint": "Open the Video tab, read the licence and tick the box."
+  },
+  "licence_withdrawn": {
+    "accepted": false,
+    "accepted_at": null,
+    "name": "Test licence",
+    "noncommercial": false,
+    "notice": "Made with the fake video engine.",
+    "outdated": false,
+    "revision": "fake-1",
+    "statement": "I have read the test licence and my use of this test clip is covered by it.",
+    "summary": "A stand-in for the real licence's summary, so that the page's licence panel has something to show in a test.",
+    "url": "https://example.org/test-licence"
+  },
+  "limits_video": {
+    "estimate": {
+      "buckets": [
+        5,
+        10,
+        20,
+        30
+      ],
+      "history": [],
+      "kind": "stand-in",
+      "overhead_s": 1.0,
+      "points": [
+        [
+          0.0,
+          1.0
+        ],
+        [
+          5.0,
+          2.0
+        ],
+        [
+          30.0,
+          6.0
+        ]
+      ],
+      "reference_pixels": 901120,
+      "source": "the test engine's own: a few seconds"
+    },
+    "fps": [
+      24
+    ],
+    "images": {
+      "end": 0,
+      "start": 1
+    },
+    "prompt_chars": 8000,
+    "qualities": {
+      "default": "draft",
+      "offered": [
+        "draft"
+      ]
+    },
+    "seconds": {
+      "choices": [
+        5,
+        10,
+        20,
+        30
+      ],
+      "default": 10,
+      "long_from": 10,
+      "long_note": "Longer clips can show odd body motion; try another seed.",
+      "max": 30,
+      "min": 1
+    },
+    "size": {
+      "default": [
+        1280,
+        704
+      ],
+      "max": 1920,
+      "min": 64,
+      "multiple": 64,
+      "presets": [
+        {
+          "height": 704,
+          "id": "landscape",
+          "label": "1280\u00d7704",
+          "width": 1280
+        },
+        {
+          "height": 576,
+          "id": "quick",
+          "label": "1024\u00d7576 (quick look)",
+          "width": 1024
+        },
+        {
+          "height": 1280,
+          "id": "portrait",
+          "label": "704\u00d71280",
+          "width": 704
+        },
+        {
+          "height": 320,
+          "id": "tiny",
+          "label": "512\u00d7320 (a test)",
+          "width": 512
+        }
+      ]
+    },
+    "sound_chars": 1000
+  },
+  "limits_video_with_history": {
+    "estimate": {
+      "buckets": [
+        5,
+        10,
+        20,
+        30
+      ],
+      "history": [
+        {
+          "fps": 24,
+          "height": 128,
+          "seconds": 1.0,
+          "took": 0.4,
+          "width": 256
+        },
+        {
+          "fps": 24,
+          "height": 128,
+          "seconds": 1.0,
+          "took": 0.4,
+          "width": 256
+        },
+        {
+          "fps": 24,
+          "height": 128,
+          "seconds": 1.0,
+          "took": 0.4,
+          "width": 256
+        },
+        {
+          "fps": 24,
+          "height": 128,
+          "seconds": 1.0,
+          "took": 0.5,
+          "width": 256
+        }
+      ],
+      "kind": "stand-in",
+      "overhead_s": 1.0,
+      "points": [
+        [
+          0.0,
+          1.0
+        ],
+        [
+          5.0,
+          2.0
+        ],
+        [
+          30.0,
+          6.0
+        ]
+      ],
+      "reference_pixels": 901120,
+      "source": "the test engine's own: a few seconds"
+    },
+    "fps": [
+      24
+    ],
+    "images": {
+      "end": 0,
+      "start": 1
+    },
+    "prompt_chars": 8000,
+    "qualities": {
+      "default": "draft",
+      "offered": [
+        "draft"
+      ]
+    },
+    "seconds": {
+      "choices": [
+        5,
+        10,
+        20,
+        30
+      ],
+      "default": 10,
+      "long_from": 10,
+      "long_note": "Longer clips can show odd body motion; try another seed.",
+      "max": 30,
+      "min": 1
+    },
+    "size": {
+      "default": [
+        1280,
+        704
+      ],
+      "max": 1920,
+      "min": 64,
+      "multiple": 64,
+      "presets": [
+        {
+          "height": 704,
+          "id": "landscape",
+          "label": "1280\u00d7704",
+          "width": 1280
+        },
+        {
+          "height": 576,
+          "id": "quick",
+          "label": "1024\u00d7576 (quick look)",
+          "width": 1024
+        },
+        {
+          "height": 1280,
+          "id": "portrait",
+          "label": "704\u00d71280",
+          "width": 704
+        },
+        {
+          "height": 320,
+          "id": "tiny",
+          "label": "512\u00d7320 (a test)",
+          "width": 512
+        }
+      ]
+    },
+    "sound_chars": 1000
+  },
+  "list": {
+    "next_before": "71fa51ae677776236a80776beab025ab",
+    "runs": [
+      {
+        "binned_images": [],
+        "binned_tracks": [],
+        "binned_vectors": [],
+        "canceling": false,
+        "created_at": "2026-11-23T20:28:40.716Z",
+        "deleted_at": null,
+        "effective_prompt": "waiting one",
+        "error": null,
+        "expires_at": "2026-12-23T20:28:40.716Z",
+        "finished_at": "2026-11-23T20:28:41.125Z",
+        "id": "0d72c6a13a3e995b10c7c9387b2a38f0",
+        "images": [],
+        "inputs": [],
+        "lyrics": null,
+        "mode": "video",
+        "model_id": "fake-video \u00b7 distilled",
+        "notes": "",
+        "options": {
+          "engine": "fake",
+          "fps": 24,
+          "frames": 25,
+          "height": 128,
+          "keep_sound": true,
+          "mode": "text",
+          "quality": "draft",
+          "seconds": 1.0,
+          "seed": 3427171726,
+          "seed_was_random": true,
+          "segments": 1,
+          "sound": "",
+          "start": null,
+          "variant": "distilled",
+          "width": 256
+        },
+        "pinned": false,
+        "progress": null,
+        "project_id": null,
+        "prompt": "waiting one",
+        "prompt_ref": null,
+        "purge_at": null,
+        "queue_position": null,
+        "segments": [
+          {
+            "idx": 0,
+            "seconds": 1.042,
+            "status": "done"
+          }
+        ],
+        "started_at": "2026-11-23T20:28:40.767Z",
+        "status": "done",
+        "tags": [],
+        "tracks": [],
+        "vectors": [],
+        "video": {
+          "audio_channels": 2,
+          "audio_rate": 48000,
+          "bytes": 17232,
+          "download_url": "/api/videos/f46bf1c8832514b7592d2011d99eaf4f?download=1",
+          "fps": 24.0,
+          "frames": 25,
+          "has_audio": true,
+          "height": 128,
+          "id": "f46bf1c8832514b7592d2011d99eaf4f",
+          "note": null,
+          "poster_url": "/api/videos/f46bf1c8832514b7592d2011d99eaf4f/poster",
+          "seconds": 1.042,
+          "seed": 3427171726,
+          "thumb_url": "/api/videos/f46bf1c8832514b7592d2011d99eaf4f/thumb",
+          "url": "/api/videos/f46bf1c8832514b7592d2011d99eaf4f",
+          "width": 256
+        }
+      },
+      {
+        "binned_images": [],
+        "binned_tracks": [],
+        "binned_vectors": [],
+        "canceling": false,
+        "created_at": "2026-11-23T20:28:40.713Z",
+        "deleted_at": null,
+        "effective_prompt": "slow one [fake:slow]",
+        "error": null,
+        "expires_at": "2026-12-23T20:28:40.713Z",
+        "finished_at": "2026-11-23T20:28:40.767Z",
+        "id": "71fa51ae677776236a80776beab025ab",
+        "images": [],
+        "inputs": [],
+        "lyrics": null,
+        "mode": "video",
+        "model_id": "fake-video \u00b7 distilled",
+        "notes": "",
+        "options": {
+          "engine": "fake",
+          "fps": 24,
+          "frames": 25,
+          "height": 128,
+          "keep_sound": true,
+          "mode": "text",
+          "quality": "draft",
+          "seconds": 1.0,
+          "seed": 3966717558,
+          "seed_was_random": true,
+          "segments": 1,
+          "sound": "",
+          "start": null,
+          "variant": "distilled",
+          "width": 256
+        },
+        "pinned": false,
+        "progress": null,
+        "project_id": null,
+        "prompt": "slow one [fake:slow]",
+        "prompt_ref": null,
+        "purge_at": null,
+        "queue_position": null,
+        "segments": [],
+        "started_at": "2026-11-23T20:28:40.715Z",
+        "status": "canceled",
+        "tags": [],
+        "tracks": [],
+        "vectors": [],
+        "video": null
+      }
+    ]
+  },
+  "progress_event": {
+    "id": "798f399b422dba062e940a12690a5466",
+    "progress": {
+      "image": 1,
+      "of": 1,
+      "stage": "denoise",
+      "step": 0,
+      "steps": 0
+    }
+  },
+  "queue": {
+    "cap": 10,
+    "queued": [
+      {
+        "draft": false,
+        "id": "0d72c6a13a3e995b10c7c9387b2a38f0",
+        "kind": "video",
+        "movable": true,
+        "position": 1,
+        "title": "waiting one"
+      }
+    ],
+    "running": {
+      "draft": false,
+      "id": "71fa51ae677776236a80776beab025ab",
+      "kind": "video",
+      "movable": false,
+      "position": null,
+      "title": "slow one [fake:slow]"
+    }
+  },
+  "requests": {
+    "licence": [
+      "accept",
+      "revision"
+    ],
+    "run_options": [
+      "fps",
+      "frames",
+      "height",
+      "keep_sound",
+      "mode",
+      "quality",
+      "seconds",
+      "seed",
+      "segments",
+      "sound",
+      "strength",
+      "width"
+    ]
+  },
+  "run_canceled": {
+    "binned_images": [],
+    "binned_tracks": [],
+    "binned_vectors": [],
+    "canceling": false,
+    "created_at": "2026-11-23T20:28:40.713Z",
+    "deleted_at": null,
+    "effective_prompt": "slow one [fake:slow]",
+    "error": null,
+    "expires_at": "2026-12-23T20:28:40.713Z",
+    "finished_at": "2026-11-23T20:28:40.767Z",
+    "id": "71fa51ae677776236a80776beab025ab",
+    "images": [],
+    "inputs": [],
+    "lyrics": null,
+    "mode": "video",
+    "model_id": "fake-video \u00b7 distilled",
+    "notes": "",
+    "options": {
+      "engine": "fake",
+      "fps": 24,
+      "frames": 25,
+      "height": 128,
+      "keep_sound": true,
+      "mode": "text",
+      "quality": "draft",
+      "seconds": 1.0,
+      "seed": 3966717558,
+      "seed_was_random": true,
+      "segments": 1,
+      "sound": "",
+      "start": null,
+      "variant": "distilled",
+      "width": 256
+    },
+    "pinned": false,
+    "progress": null,
+    "project_id": null,
+    "prompt": "slow one [fake:slow]",
+    "prompt_ref": null,
+    "purge_at": null,
+    "queue_position": null,
+    "segments": [],
+    "started_at": "2026-11-23T20:28:40.715Z",
+    "status": "canceled",
+    "tags": [],
+    "tracks": [],
+    "vectors": [],
+    "video": null
+  },
+  "run_failed": {
+    "binned_images": [],
+    "binned_tracks": [],
+    "binned_vectors": [],
+    "canceling": false,
+    "created_at": "2026-11-23T20:28:40.688Z",
+    "deleted_at": null,
+    "effective_prompt": "a fox [fake:error]",
+    "error": {
+      "hint": "The server's log has the program's last lines.",
+      "message": "The video program stopped: RuntimeError: the fake video program was told to fail on this clip"
+    },
+    "expires_at": "2026-12-23T20:28:40.688Z",
+    "finished_at": "2026-11-23T20:28:40.695Z",
+    "id": "448dfb57f9dba66c546dd099fd877f89",
+    "images": [],
+    "inputs": [],
+    "lyrics": null,
+    "mode": "video",
+    "model_id": "fake-video \u00b7 distilled",
+    "notes": "",
+    "options": {
+      "engine": "fake",
+      "fps": 24,
+      "frames": 25,
+      "height": 128,
+      "keep_sound": true,
+      "mode": "text",
+      "quality": "draft",
+      "seconds": 1.0,
+      "seed": 922894092,
+      "seed_was_random": true,
+      "segments": 1,
+      "sound": "",
+      "start": null,
+      "variant": "distilled",
+      "width": 256
+    },
+    "pinned": false,
+    "progress": null,
+    "project_id": null,
+    "prompt": "a fox [fake:error]",
+    "prompt_ref": null,
+    "purge_at": null,
+    "queue_position": null,
+    "segments": [],
+    "started_at": "2026-11-23T20:28:40.689Z",
+    "status": "failed",
+    "tags": [],
+    "tracks": [],
+    "vectors": [],
+    "video": null
+  },
+  "run_image": {
+    "binned_images": [],
+    "binned_tracks": [],
+    "binned_vectors": [],
+    "canceling": false,
+    "created_at": "2026-11-23T20:28:39.893Z",
+    "deleted_at": null,
+    "effective_prompt": "the red room",
+    "error": null,
+    "expires_at": "2026-12-23T20:28:39.893Z",
+    "finished_at": "2026-11-23T20:28:40.318Z",
+    "id": "a1b194b403e0cc278e2eec94a0987376",
+    "images": [],
+    "inputs": [
+      {
+        "can_4k": false,
+        "can_enlarge": false,
+        "enlarge_size": null,
+        "four_k": null,
+        "four_k_size": null,
+        "has_alpha": false,
+        "height": 100,
+        "id": "e51adaa5dfcca529a947b82a217ef2f6",
+        "position": 1,
+        "role": "reference",
+        "thumb_url": "/api/images/e51adaa5dfcca529a947b82a217ef2f6/thumb",
+        "url": "/api/images/e51adaa5dfcca529a947b82a217ef2f6",
+        "width": 100
+      }
+    ],
+    "lyrics": null,
+    "mode": "video",
+    "model_id": "fake-video \u00b7 distilled",
+    "notes": "",
+    "options": {
+      "engine": "fake",
+      "fps": 24,
+      "frames": 25,
+      "height": 128,
+      "keep_sound": true,
+      "mode": "image",
+      "quality": "draft",
+      "seconds": 1.0,
+      "seed": 2948796744,
+      "seed_was_random": true,
+      "segments": 1,
+      "sound": "",
+      "start": {
+        "frame": 0,
+        "image": 1,
+        "strength": 1.0
+      },
+      "variant": "distilled",
+      "width": 256
+    },
+    "pinned": false,
+    "progress": null,
+    "project_id": null,
+    "prompt": "the red room",
+    "prompt_ref": null,
+    "purge_at": null,
+    "queue_position": null,
+    "segments": [
+      {
+        "idx": 0,
+        "seconds": 1.042,
+        "status": "done"
+      }
+    ],
+    "started_at": "2026-11-23T20:28:39.895Z",
+    "status": "done",
+    "tags": [],
+    "tracks": [],
+    "vectors": [],
+    "video": {
+      "audio_channels": 2,
+      "audio_rate": 48000,
+      "bytes": 15278,
+      "download_url": "/api/videos/6303bb78f26a741d31009639b8e2a7e8?download=1",
+      "fps": 24.0,
+      "frames": 25,
+      "has_audio": true,
+      "height": 128,
+      "id": "6303bb78f26a741d31009639b8e2a7e8",
+      "note": null,
+      "poster_url": "/api/videos/6303bb78f26a741d31009639b8e2a7e8/poster",
+      "seconds": 1.042,
+      "seed": 2948796744,
+      "thumb_url": "/api/videos/6303bb78f26a741d31009639b8e2a7e8/thumb",
+      "url": "/api/videos/6303bb78f26a741d31009639b8e2a7e8",
+      "width": 256
+    }
+  },
+  "run_queued": {
+    "binned_images": [],
+    "binned_tracks": [],
+    "binned_vectors": [],
+    "canceling": false,
+    "created_at": "2026-11-23T20:28:39.333Z",
+    "deleted_at": null,
+    "effective_prompt": "a fox in the snow. Sound: snow crunching",
+    "error": null,
+    "expires_at": null,
+    "finished_at": null,
+    "id": "798f399b422dba062e940a12690a5466",
+    "images": [],
+    "inputs": [],
+    "lyrics": null,
+    "mode": "video",
+    "model_id": "fake-video \u00b7 distilled",
+    "notes": "",
+    "options": {
+      "engine": "fake",
+      "fps": 24,
+      "frames": 25,
+      "height": 128,
+      "keep_sound": true,
+      "mode": "text",
+      "quality": "draft",
+      "seconds": 1.0,
+      "seed": 77,
+      "seed_was_random": false,
+      "segments": 1,
+      "sound": "snow crunching",
+      "start": null,
+      "variant": "distilled",
+      "width": 256
+    },
+    "pinned": false,
+    "progress": null,
+    "project_id": null,
+    "prompt": "a fox in the snow",
+    "prompt_ref": null,
+    "purge_at": null,
+    "queue_position": 1,
+    "segments": [],
+    "started_at": null,
+    "status": "queued",
+    "tags": [],
+    "tracks": [],
+    "vectors": [],
+    "video": null
+  },
+  "run_silent": {
+    "binned_images": [],
+    "binned_tracks": [],
+    "binned_vectors": [],
+    "canceling": false,
+    "created_at": "2026-11-23T20:28:40.328Z",
+    "deleted_at": null,
+    "effective_prompt": "a quiet fox [fake:silent]",
+    "error": null,
+    "expires_at": "2026-12-23T20:28:40.328Z",
+    "finished_at": "2026-11-23T20:28:40.685Z",
+    "id": "a7715e516af71f401cc5e1cf485a673e",
+    "images": [],
+    "inputs": [],
+    "lyrics": null,
+    "mode": "video",
+    "model_id": "fake-video \u00b7 distilled",
+    "notes": "",
+    "options": {
+      "engine": "fake",
+      "fps": 24,
+      "frames": 25,
+      "height": 128,
+      "keep_sound": true,
+      "mode": "text",
+      "quality": "draft",
+      "seconds": 1.0,
+      "seed": 2874015864,
+      "seed_was_random": true,
+      "segments": 1,
+      "sound": "",
+      "start": null,
+      "variant": "distilled",
+      "width": 256
+    },
+    "pinned": false,
+    "progress": null,
+    "project_id": null,
+    "prompt": "a quiet fox [fake:silent]",
+    "prompt_ref": null,
+    "purge_at": null,
+    "queue_position": null,
+    "segments": [
+      {
+        "idx": 0,
+        "seconds": 1.042,
+        "status": "done"
+      }
+    ],
+    "started_at": "2026-11-23T20:28:40.329Z",
+    "status": "done",
+    "tags": [],
+    "tracks": [],
+    "vectors": [],
+    "video": {
+      "audio_channels": null,
+      "audio_rate": null,
+      "bytes": 6842,
+      "download_url": "/api/videos/ac0a2261f43287bf40245b06b9609976?download=1",
+      "fps": 24.0,
+      "frames": 25,
+      "has_audio": false,
+      "height": 128,
+      "id": "ac0a2261f43287bf40245b06b9609976",
+      "note": "This clip has no sound track.",
+      "poster_url": "/api/videos/ac0a2261f43287bf40245b06b9609976/poster",
+      "seconds": 1.042,
+      "seed": 2874015864,
+      "thumb_url": "/api/videos/ac0a2261f43287bf40245b06b9609976/thumb",
+      "url": "/api/videos/ac0a2261f43287bf40245b06b9609976",
+      "width": 256
+    }
+  },
+  "run_text": {
+    "binned_images": [],
+    "binned_tracks": [],
+    "binned_vectors": [],
+    "canceling": false,
+    "created_at": "2026-11-23T20:28:39.333Z",
+    "deleted_at": null,
+    "effective_prompt": "a fox in the snow. Sound: snow crunching",
+    "error": null,
+    "expires_at": "2026-12-23T20:28:39.333Z",
+    "finished_at": "2026-11-23T20:28:39.882Z",
+    "id": "798f399b422dba062e940a12690a5466",
+    "images": [],
+    "inputs": [],
+    "lyrics": null,
+    "mode": "video",
+    "model_id": "fake-video \u00b7 distilled",
+    "notes": "",
+    "options": {
+      "engine": "fake",
+      "fps": 24,
+      "frames": 25,
+      "height": 128,
+      "keep_sound": true,
+      "mode": "text",
+      "quality": "draft",
+      "seconds": 1.0,
+      "seed": 77,
+      "seed_was_random": false,
+      "segments": 1,
+      "sound": "snow crunching",
+      "start": null,
+      "variant": "distilled",
+      "width": 256
+    },
+    "pinned": false,
+    "progress": null,
+    "project_id": null,
+    "prompt": "a fox in the snow",
+    "prompt_ref": null,
+    "purge_at": null,
+    "queue_position": null,
+    "segments": [
+      {
+        "idx": 0,
+        "seconds": 1.042,
+        "status": "done"
+      }
+    ],
+    "started_at": "2026-11-23T20:28:39.334Z",
+    "status": "done",
+    "tags": [],
+    "tracks": [],
+    "vectors": [],
+    "video": {
+      "audio_channels": 2,
+      "audio_rate": 48000,
+      "bytes": 20894,
+      "download_url": "/api/videos/43020aa0c604a1ffea932268f4863f73?download=1",
+      "fps": 24.0,
+      "frames": 25,
+      "has_audio": true,
+      "height": 128,
+      "id": "43020aa0c604a1ffea932268f4863f73",
+      "note": null,
+      "poster_url": "/api/videos/43020aa0c604a1ffea932268f4863f73/poster",
+      "seconds": 1.042,
+      "seed": 77,
+      "thumb_url": "/api/videos/43020aa0c604a1ffea932268f4863f73/thumb",
+      "url": "/api/videos/43020aa0c604a1ffea932268f4863f73",
+      "width": 256
+    }
+  }
+}

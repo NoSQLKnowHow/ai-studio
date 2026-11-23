@@ -16,6 +16,13 @@ services:
       args:
         NGC_TAG: ${NGC_TAG:-25.10-py3}
         SPEECH_VOXTRAL: ${SPEECH_VOXTRAL:-0}
+        # The Video tab's program (LTX-2.5) built INTO the image, in an environment of its own: the second way, off unless asked for (several GB more; see "Video" in the README).
+        # The first way needs no build at all: STUDIO_VIDEO_LTX_DIR shares the LTX-2 clone you already have (below). The commit is the one that was measured working on the Spark.
+        VIDEO_LTX: ${VIDEO_LTX:-0}
+        LTX_COMMIT: ${LTX_COMMIT:-daa6b16fc7f0f1628f2c9e36a303e3312b333cc6}
+        LTX_PYTHON: ${LTX_PYTHON:-3.12}
+        LTX_REPO: ${LTX_REPO:-https://github.com/Lightricks/LTX-2.git}
+        LTX_UV_SYNC_ARGS: ${LTX_UV_SYNC_ARGS:-}
     image: ai-image-studio:local
     container_name: ai-image-studio
     restart: unless-stopped
@@ -50,6 +57,15 @@ services:
       # The Hugging Face cache, shared with anything else on the Spark that uses the default one
       # (Hermes' vLLM, the qwen_image.py script), so a model already downloaded isn't fetched again.
       - ${HF_CACHE_DIR:-${HOME}/.cache/huggingface}:/models
+      # The Video tab (DESIGN.md section 46), both of them read-only and each at THE SAME PATH inside the container as on the Spark, so that what is recorded in them (the editable
+      # installs of the LTX-2 clone name absolute paths under it) still points at things that exist, and so that a message that names a path names one you can find on the host.
+      # Set the two in .env (README, Video) and run docker compose up -d again:
+      #   STUDIO_VIDEO_LTX_DIR=/home/you/ltx-experiment/LTX-2        the LTX-2 clone with its .venv and packages/ (made with uv sync, where LTX was first run)
+      #   STUDIO_VIDEO_MODELS_DIR=/home/you/ltx-experiment/models    diffusion_models, text_encoders, vae, latent_upscale_models, model_patches (71 GB; nothing is downloaded)
+      # Both must be readable by STUDIO_UID:STUDIO_GID. Unset, each is an empty folder under ./data (so that compose works), and the Video tab says what is missing. The clone's
+      # .venv/bin/python is a link to /usr/bin/python3, which the container has too (Ubuntu 24.04, Python 3.12.3): the host's environment runs as it is, with no rebuild.
+      - ${STUDIO_VIDEO_LTX_DIR:-./data/video-env}:${STUDIO_VIDEO_LTX_DIR:-/opt/video-ltx-unset}:ro
+      - ${STUDIO_VIDEO_MODELS_DIR:-./data/video-models}:${STUDIO_VIDEO_MODELS_DIR:-/opt/video-models-unset}:ro
     environment:
       STUDIO_MODEL: ${STUDIO_MODEL:-Qwen/Qwen-Image-2.1}
       STUDIO_MIN_FREE_GB: ${STUDIO_MIN_FREE_GB:-40}
@@ -103,6 +119,26 @@ services:
       STUDIO_SPEECH_DECODE_TIMEOUT_S: ${STUDIO_SPEECH_DECODE_TIMEOUT_S:-30}
       STUDIO_SPEECH_TEMP_HOURS: ${STUDIO_SPEECH_TEMP_HOURS:-24}
       STUDIO_SPEECH_AUDIOBOOK_KBPS: ${STUDIO_SPEECH_AUDIOBOOK_KBPS:-64}
+      # The Video tab (the sixth, DESIGN.md section 46): LTX-2.5, run as a program of its own for each clip. The two folders are the ones mounted above, at the same path; an empty
+      # file name means "the one that looks right in its usual folder" (docs: README, Video). Unset: the Video tab says what to set.
+      STUDIO_VIDEO_LTX_DIR: ${STUDIO_VIDEO_LTX_DIR:-}
+      STUDIO_VIDEO_MODELS_DIR: ${STUDIO_VIDEO_MODELS_DIR:-}
+      STUDIO_VIDEO_TRANSFORMER: ${STUDIO_VIDEO_TRANSFORMER:-}
+      STUDIO_VIDEO_TEXT_ENCODER: ${STUDIO_VIDEO_TEXT_ENCODER:-}
+      STUDIO_VIDEO_VIDEO_VAE: ${STUDIO_VIDEO_VIDEO_VAE:-}
+      STUDIO_VIDEO_AUDIO_VAE: ${STUDIO_VIDEO_AUDIO_VAE:-}
+      STUDIO_VIDEO_UPSAMPLER: ${STUDIO_VIDEO_UPSAMPLER:-}
+      STUDIO_VIDEO_COMMAND: ${STUDIO_VIDEO_COMMAND:-}
+      STUDIO_VIDEO_PYTHON: ${STUDIO_VIDEO_PYTHON:-}
+      STUDIO_VIDEO_EXTRA_ARGS: ${STUDIO_VIDEO_EXTRA_ARGS:-}
+      STUDIO_VIDEO_MIN_FREE_GB: ${STUDIO_VIDEO_MIN_FREE_GB:-60}
+      STUDIO_VIDEO_MIN_FREE_DISK_GB: ${STUDIO_VIDEO_MIN_FREE_DISK_GB:-5}
+      STUDIO_VIDEO_MAX_SECONDS: ${STUDIO_VIDEO_MAX_SECONDS:-30}
+      STUDIO_VIDEO_QUANTIZATION: ${STUDIO_VIDEO_QUANTIZATION:-none}
+      STUDIO_VIDEO_OFFLOAD: ${STUDIO_VIDEO_OFFLOAD:-none}
+      STUDIO_VIDEO_TIMEOUT_MIN: ${STUDIO_VIDEO_TIMEOUT_MIN:-0}
+      STUDIO_VIDEO_FFMPEG: ${STUDIO_VIDEO_FFMPEG:-ffmpeg}
+      STUDIO_VIDEO_FFPROBE: ${STUDIO_VIDEO_FFPROBE:-ffprobe}
       STUDIO_VARIATIONS_FROM_PICTURE: ${STUDIO_VARIATIONS_FROM_PICTURE:-false}
       STUDIO_TAG_SUGGESTIONS: ${STUDIO_TAG_SUGGESTIONS:-5}
       HF_TOKEN: ${HF_TOKEN:-}

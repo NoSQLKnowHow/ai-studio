@@ -20,7 +20,7 @@ export interface ModelAsk extends ModelAction {
   fromEngine?: string | null; // the speech engine the worker held when it was asked: loading one engine over another goes from "ready" to "ready" too
 }
 
-export const MODEL_LABEL: Record<ModelName, string> = { image: "Image model", music: "Music model", speech: "Speech model" };
+export const MODEL_LABEL: Record<ModelName, string> = { image: "Image model", music: "Music model", speech: "Speech model", video: "Video model" };
 
 /** What the Speech tab tells the header: whether any engine can run, and which engine is shown (the button acts on it, DESIGN.md §38.2). */
 export interface SpeechTarget {
@@ -39,6 +39,9 @@ export interface SpeechTarget {
  *  idle is swapped for it as the other models are. With no engine to act on, nothing is offered. */
 export function modelAction(worker: WorkerStatus, tab: ModelName, musicAvailable = true, speech?: SpeechTarget): ModelAction | null {
   if (tab === "music" && !musicAvailable) return null;
+  // The video model is a program that is run for each clip and ends (DESIGN.md §46.6): it loads its models every time, so there is nothing to load ahead of time, and nothing held
+  // in memory to unload. The Video tab says so in words, and the button is not offered.
+  if (tab === "video") return null;
   if (tab === "speech") {
     if (!speech?.available || !speech.engine) return null;
     const holdsIt = worker.model === "speech" && worker.engine === speech.engine;
@@ -72,7 +75,7 @@ export function modelActionTitle(action: ModelAction, worker: WorkerStatus): str
  *  still in the state (and holding the model) it was when the user asked. */
 export function modelAnnouncement(ask: ModelAsk, worker: WorkerStatus): { text: string; settled: boolean } | null {
   if (worker.state === ask.from && worker.model === ask.fromModel && (ask.model !== "speech" || (worker.engine ?? null) === (ask.fromEngine ?? null))) return null;
-  const name = ask.model === "music" ? "music" : ask.model === "speech" ? "speech" : "image";
+  const name = ask.model === "music" ? "music" : ask.model === "speech" ? "speech" : ask.model === "video" ? "video" : "image";
   if (ask.kind === "unload") return worker.state === "unloaded" ? { text: `${MODEL_LABEL[ask.model]} unloaded.`, settled: true } : null;
   switch (worker.state) {
     case "loading":

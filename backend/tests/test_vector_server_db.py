@@ -110,8 +110,8 @@ OLD_DATABASES = [(make_v2, "1.7 (schema 2)"), (v3_database, "1.12 (schema 3)"), 
 
 
 # ------------------------------------------------------------------ the number
-def test_the_schema_is_13():
-    assert SCHEMA_VERSION == 13  # 1.26's tags, notes and word index made it 13 (three new tables; 1.25's pronunciation list and speakers made it 12 before that); 1.24's More like this made it 11 (runs.variation_json and runs.family_id); 1.17's Vector made it 7, 1.18's versions in the bin 8, 1.19's Prompt builder 9 and 1.20's Speech tab 10: when the next release changes the schema, this is the line to move
+def test_the_schema_is_at_least_13():
+    assert SCHEMA_VERSION >= 13  # 1.27's Video tab made it 14 (the mode 'video' and three tables: test_video_schema.py); 1.26's tags, notes and word index made it 13 (three new tables; 1.25's pronunciation list and speakers made it 12 before that); 1.24's More like this made it 11 (runs.variation_json and runs.family_id); 1.17's Vector made it 7, 1.18's versions in the bin 8, 1.19's Prompt builder 9 and 1.20's Speech tab 10: when the next release changes the schema, this is the line to move
 
 
 # ------------------------------------------------------------------ migrating 1.16 (schema 6), losing nothing

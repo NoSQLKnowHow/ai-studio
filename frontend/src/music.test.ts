@@ -420,21 +420,25 @@ describe("tabs", () => {
     expect(readTab(store)).toBe("music");
     saveTab("vector", store); // the third tab (DESIGN.md §31.12.8) is remembered as well
     expect(readTab(store)).toBe("vector");
-    expect(readTab(memoryStore({ [TAB_KEY]: "video" }))).toBe("images");
+    expect(readTab(memoryStore({ [TAB_KEY]: "film" }))).toBe("images"); // ("video" was the word for anything else until 1.27 made it the sixth tab)
+    saveTab("video", store);
+    expect(readTab(store)).toBe("video");
   });
-  it("arrow keys move between the five tabs and wrap, Home and End go to the ends, other keys do nothing", () => {
+  it("arrow keys move between the six tabs and wrap, Home and End go to the ends, other keys do nothing", () => {
     expect(tabAfterKey("images", "ArrowRight")).toBe("music");
     expect(tabAfterKey("music", "ArrowRight")).toBe("vector");
     expect(tabAfterKey("vector", "ArrowRight")).toBe("builder");
     expect(tabAfterKey("builder", "ArrowRight")).toBe("speech");
-    expect(tabAfterKey("speech", "ArrowRight")).toBe("images"); // wraps round
-    expect(tabAfterKey("images", "ArrowLeft")).toBe("speech"); // ...and the other way
+    expect(tabAfterKey("speech", "ArrowRight")).toBe("video"); // the sixth tab (DESIGN.md §46.11)
+    expect(tabAfterKey("video", "ArrowRight")).toBe("images"); // wraps round
+    expect(tabAfterKey("images", "ArrowLeft")).toBe("video"); // ...and the other way
+    expect(tabAfterKey("video", "ArrowLeft")).toBe("speech");
     expect(tabAfterKey("speech", "ArrowLeft")).toBe("builder");
     expect(tabAfterKey("builder", "ArrowLeft")).toBe("vector");
     expect(tabAfterKey("vector", "ArrowLeft")).toBe("music");
     expect(tabAfterKey("music", "ArrowLeft")).toBe("images");
     expect(tabAfterKey("music", "Home")).toBe("images");
-    expect(tabAfterKey("images", "End")).toBe("speech");
+    expect(tabAfterKey("images", "End")).toBe("video");
     expect(tabAfterKey("images", "Enter")).toBeNull();
     expect(tabAfterKey("images", "a")).toBeNull();
   });
@@ -454,7 +458,8 @@ describe("tabs", () => {
     saveTab("speech", store);
     expect(store.data[TAB_KEY]).toBe("speech");
     expect(readTab(store)).toBe("speech");
-    expect(TABS.map((tab) => tab.id)).toEqual(["images", "music", "vector", "builder", "speech"]);
+    expect(TABS.map((tab) => tab.id)).toEqual(["images", "music", "vector", "builder", "speech", "video"]); // Video, new in 1.27, is the sixth: after Speech
     expect(TABS[4].label).toBe("Speech");
+    expect(TABS[5].label).toBe("Video");
   });
 });

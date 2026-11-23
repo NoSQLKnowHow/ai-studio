@@ -17,8 +17,8 @@ TABLE = json.loads((Path(__file__).parent / "filter_cases.json").read_text())
 
 
 def same_as_the_table(counts: dict, expected: dict) -> None:
-    """The counts for every tab are the table's, exactly: the table lists a tab for each kind of run the server counts (Images, Music, Vector and, since the page has a Speech tab,
-    Speech), so a kind the table forgot would be a count nothing checks."""
+    """The counts for every tab are the table's, exactly: the table lists a tab for each kind of run the server counts (Images, Music, Vector and, since the page has a Speech and a Video tab,
+    Speech and Video), so a kind the table forgot would be a count nothing checks."""
     assert counts == expected
 
 
@@ -128,7 +128,7 @@ def test_counted_within_narrows_every_counted_filter_to_the_project():
 
 
 def test_the_kinds_are_the_tabs():
-    assert KINDS == {"image": ("generate", "edit"), "music": ("music",), "vector": ("vector",), "speech": ("speech",)}  # Vector is the third tab (§31.12.7), Speech the fifth (§38.2: the fourth, Prompt builder, has no runs of its own)
+    assert KINDS == {"image": ("generate", "edit"), "music": ("music",), "vector": ("vector",), "speech": ("speech",), "video": ("video",)}  # Vector is the third tab (§31.12.7), Speech the fifth (§38.2: the fourth, Prompt builder, has no runs of its own), Video the sixth (§46.11)
 
 
 # conditions() is the whole SQL contract: nothing set adds nothing, and kept=True or False binds 1 or 0
@@ -230,13 +230,13 @@ def test_the_counts_say_how_many_runs_each_tab_holds_and_how_many_are_kept(clien
     music = client.post("/api/runs", json={"mode": "music", "prompt": "Genre: ambient. A slow piano.", "options": {"duration": 30}}).json()["id"]
     for run_id in (first, second, music):
         wait_for(client, run_id)
-    none = {"all": 0, "kept": 0, "deleted": 0, "deleted_items": 0}  # nothing has been made on the Vector or Speech tab: they are counted, and count zero
+    none = {"all": 0, "kept": 0, "deleted": 0, "deleted_items": 0}  # nothing has been made on the Vector, Speech or Video tab: they are counted, and count zero
     assert client.get("/api/runs/counts").json() == {"image": {"all": 2, "kept": 0, "deleted": 0, "deleted_items": 0},
-                                                     "music": {"all": 1, "kept": 0, "deleted": 0, "deleted_items": 0}, "vector": none, "speech": none}
+                                                     "music": {"all": 1, "kept": 0, "deleted": 0, "deleted_items": 0}, "vector": none, "speech": none, "video": none}
     keep(client, first, True)
     keep(client, music, True)
     assert client.get("/api/runs/counts").json() == {"image": {"all": 2, "kept": 1, "deleted": 0, "deleted_items": 0},
-                                                     "music": {"all": 1, "kept": 1, "deleted": 0, "deleted_items": 0}, "vector": none, "speech": none}
+                                                     "music": {"all": 1, "kept": 1, "deleted": 0, "deleted_items": 0}, "vector": none, "speech": none, "video": none}
     keep(client, first, False)
     assert client.get("/api/runs/counts").json()["image"] == {"all": 2, "kept": 0, "deleted": 0, "deleted_items": 0}
 

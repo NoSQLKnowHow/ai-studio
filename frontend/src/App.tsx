@@ -19,6 +19,8 @@ import { Tray } from "./components/Tray";
 import { BuilderPanel, type BuilderCommand, type HistoryPicture } from "./components/BuilderPanel";
 import { VectorPanel } from "./components/VectorPanel";
 import { VectorViewer } from "./components/VectorViewer";
+import { VideoPanel } from "./components/VideoPanel";
+import { VideoViewer } from "./components/VideoViewer";
 import { CompareBar } from "./components/CompareBar";
 import { CompareView } from "./components/CompareView";
 import { MoreLikeThisDialog, type MoreLikeThisTarget } from "./components/MoreLikeThisDialog";
@@ -66,10 +68,11 @@ import {
 import { initialState, reducer } from "./store";
 import { editCost, followedPosition, inputRefs, insertReference, shapeFromForRequest, submitBlock, type KnownImage } from "./tray";
 import {
-  isImageRun, isMusicRun, isSpeechRun, isVectorRun, type BinnedImage, type BinnedTrack, type BinnedVectorItem, type CreateRunBody, type Facets, type FourKTarget, type ImageInfo, type ImageRun,
-  type MusicRun, type Project, type Run,
+  isImageRun, isMusicRun, isSpeechRun, isVectorRun, isVideoRun, type BinnedImage, type BinnedTrack, type BinnedVectorItem, type CreateRunBody, type Facets, type FourKTarget, type ImageInfo, type ImageRun,
+  type MusicRun, type Project, type Run, type VideoRun,
 } from "./types";
 import { VECTOR_PNG_RANGE, pngRange } from "./vector";
+import { pictureChoices, type AnimateRequest } from "./video";
 import { useEventStream } from "./useEvents";
 import { useTray } from "./useTray";
 import { PromptLinksContext, type PromptLinks } from "./promptLinks";
@@ -77,7 +80,7 @@ import { refOf, usePromptUse, type FromPrompt } from "./usePromptUse";
 import { viewerItems, viewerKnown } from "./viewer";
 
 const NO_PROJECTS: Project[] = []; // the list of projects before it has arrived: one array, so nothing re-renders for a new empty one
-const NO_FACETS: Record<TabKind, { model: string | null; size: string | null }> = { image: { model: null, size: null }, music: { model: null, size: null }, vector: { model: null, size: null }, speech: { model: null, size: null } };
+const NO_FACETS: Record<TabKind, { model: string | null; size: string | null }> = { image: { model: null, size: null }, music: { model: null, size: null }, vector: { model: null, size: null }, speech: { model: null, size: null }, video: { model: null, size: null } };
 // The three calls that send one picture, track or version to the bin, take it out again, and delete it for good (DESIGN.md §33.3, §35.4). One table, so that the
 // handlers below are the same for all three and a new kind of item is a new row.
 const ITEM_API = {
@@ -133,6 +136,9 @@ export default function App() {
   const [modelBusy, setModelBusy] = useState(false); // a Load or Unload request is on its way (DESIGN.md §25)
   const [tab, setTab] = useState<TabId>(() => readTab(store)); // Images, Music, Vector or Prompt builder (DESIGN.md §26.1, §31.12.8, §37.2), remembered
   const [builderWorking, setBuilderWorking] = useState(false); // a reply is being written: the dot on the Prompt builder tab
+  const [videoView, setVideoView] = useState<string | null>(null); // the clip open in the viewer, by run id (DESIGN.md §46.11)
+  const [animate, setAnimate] = useState<AnimateRequest | null>(null); // Animate this: a picture for the Video tab to start from, a new request each time (§46.11)
+  const videoPaste = useRef<((files: File[]) => void) | null>(null); // the Video tab's way of taking a picture that is pasted
   const [speechEngine, setSpeechEngine] = useState<string | null>(null); // the engine the Speech tab shows: the header's Load and Unload act on it (DESIGN.md §38.2)
   const speechJobs = useRef(createEmitter<SpeechJob>()).current; // `speech.job` events, for the Speech tab to hear when a sample is made
   const speechPieces = useRef(createEmitter<ReadingPieceEvent>()).current; // `reading.piece` events, for the player to hear that a piece of a reading is made
@@ -145,14 +151,14 @@ export default function App() {
   const [sharedFilter, setSharedFilter] = useState<HistoryFilter>(() => readFilter(store)); // Show, Project, the search and the dates, for every tab (DESIGN.md §29, §45.4 rule 7); Show and Project are remembered
   // The Model and the Size are each tab's own (§45.4 rule 7): a model of the Images tab is not a model of the Music tab. They are not remembered (rule 8).
   const [facetChoice, setFacetChoice] = useState<Record<TabKind, { model: string | null; size: string | null }>>(NO_FACETS);
-  const [facets, setFacets] = useState<Record<TabKind, Facets | null>>({ image: null, music: null, vector: null, speech: null }); // what the Model and Size drop-downs offer, by tab
+  const [facets, setFacets] = useState<Record<TabKind, Facets | null>>({ image: null, music: null, vector: null, speech: null, video: null }); // what the Model and Size drop-downs offer, by tab
   const [filterProblem, setFilterProblem] = useState<string | null>(null); // why the filtered list could not be loaded
   const [managingProjects, setManagingProjects] = useState(false); // the Manage projects dialog is open (DESIGN.md §32.1)
   const [loadOlderFailed, setLoadOlderFailed] = useState(false);
   const { toasts, push, dismiss } = useToasts();
   const now = useNow(30_000);
   // what the tab being looked at is called in the counts (`Counts` has a key for each)
-  const tabKind: TabKind = tab === "music" ? "music" : tab === "vector" ? "vector" : tab === "speech" ? "speech" : "image"; // (the Prompt builder has no history of runs: it shows nothing of this)
+  const tabKind: TabKind = tab === "music" ? "music" : tab === "vector" ? "vector" : tab === "speech" ? "speech" : tab === "video" ? "video" : "image"; // (the Prompt builder has no history of runs: it shows nothing of this)
   // The filter of the tab being looked at: what every tab shares, with this tab's own Model and Size (DESIGN.md §45.4 rule 7). Everything below reads this one.
   const filter = useMemo<HistoryFilter>(() => ({ ...sharedFilter, model: facetChoice[tabKind].model, size: facetChoice[tabKind].size }), [sharedFilter, facetChoice, tabKind]);
   const promptRef = useRef<HTMLTextAreaElement>(null);
@@ -172,6 +178,8 @@ export default function App() {
   const musicRuns = useMemo(() => visible.filter(isMusicRun), [visible]);
   const vectorRuns = useMemo(() => visible.filter(isVectorRun), [visible]);
   const speechRuns = useMemo(() => visible.filter(isSpeechRun).filter((run) => !run.hidden), [visible]); // readings (a sample or a design is never in a list, DESIGN.md §38.4)
+  const videoRuns = useMemo(() => visible.filter(isVideoRun), [visible]); // clips (DESIGN.md §46)
+  const videoChoices = useMemo(() => pictureChoices(imageRuns), [imageRuns]); // the pictures of the history a clip can start from
   // The reading in the player is looked for among all the runs the page has, not only those the filter shows, so that choosing another filter does not stop it. If it is
   // gone (deleted for good) the player goes with it. Closing returns focus to the card it was opened from.
   const listeningRun = listening ? state.runs[listening.id] : undefined;
@@ -184,7 +192,7 @@ export default function App() {
     if (id) window.setTimeout(() => cardReuseButton(id)?.focus(), 0);
   };
   const reader = listening && listeningRun && isSpeechRun(listeningRun) ? { run: listeningRun, turn: listening.turn, pieces: speechPieces, onClose: closeReader } : undefined;
-  const tabRuns = tab === "music" ? musicRuns : tab === "vector" ? vectorRuns : tab === "speech" ? speechRuns : imageRuns;
+  const tabRuns = tab === "music" ? musicRuns : tab === "vector" ? vectorRuns : tab === "speech" ? speechRuns : tab === "video" ? videoRuns : imageRuns;
   // the name the server counts this filter under (null: it has no count)
   const countName = filter.deleted === true && filter.kept === null ? "deleted" : filter.deleted === false ? (filter.kept === true ? "kept" : filter.kept === null ? "all" : null) : null;
   // The counts are asked for within the project that is chosen (DESIGN.md §32.5), so they are only used for the filter they describe: a number
@@ -228,8 +236,11 @@ export default function App() {
     void start();
   }, [start]);
 
+  // What the server can do changed (the start-up checks finished, or the video licence was acknowledged or withdrawn): read it again
+  const refreshCaps = useCallback(() => void api.capabilities().then((c) => dispatch({ type: "caps", caps: c })).catch(() => undefined), []);
+
   useEventStream(dispatch, {
-    onCapabilitiesChanged: () => void api.capabilities().then((c) => dispatch({ type: "caps", caps: c })).catch(() => undefined),
+    onCapabilitiesChanged: () => refreshCaps(),
     onBuilderChanged: () => setBuilderTick((n) => n + 1),
     onSpeechJob: speechJobs.emit,
     onReadingPiece: speechPieces.emit,
@@ -591,7 +602,32 @@ export default function App() {
   };
 
   // One listener for pasted pictures on the whole page (§36.4): the prompt box, the bare page, a button, Upscale a picture… when it has the focus
-  usePicturePaste({ tab, ready: !!caps && !!options, onTray: handleFiles, onUpscale: upscaleFiles, onBuilder: (files) => builderAttach.current?.(files), onWrongTab: () => push("info", PICTURES_ON_IMAGES_TAB) });
+  usePicturePaste({
+    tab, ready: !!caps && !!options, onTray: handleFiles, onUpscale: upscaleFiles, onBuilder: (files) => builderAttach.current?.(files), onVideo: (files) => videoPaste.current?.(files),
+    onWrongTab: () => push("info", PICTURES_ON_IMAGES_TAB),
+  });
+
+  /** Animate this: a picture becomes the first frame of a clip, and the Video tab opens with it (DESIGN.md §46.11). It is refused in words when the Video tab cannot make clips here, when
+   *  the picture's run is still being made, or when it is in the bin. From the viewer a refusal is shown inside it. Returns whether the Video tab took it. */
+  const animateThis = (image: KnownImage, run: ImageRun, fromViewer: boolean): boolean => {
+    const refuse = (text: string): boolean => {
+      if (fromViewer) setLightbox((current) => (current ? { ...current, notice: { kind: "error", text } } : current));
+      else push("error", text);
+      return false;
+    };
+    if (!caps?.video.available) return refuse("The Video tab can't make clips on this machine. Open it to see why.");
+    if (run.status !== "done") return refuse("This picture is still being made. Animate it when it is done.");
+    if (run.deleted_at !== null) return refuse("This run is in the bin. Restore it first.");
+    setAnimate((current) => ({
+      seq: (current?.seq ?? 0) + 1, prompt: run.prompt,
+      picture: { ref: { image_id: image.imageId }, thumbUrl: image.thumbUrl, width: image.width, height: image.height, label: image.name },
+    }));
+    setLightbox(null);
+    changeTab("video");
+    window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
+    requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>("[data-video-form] textarea")?.focus({ preventScroll: true }));
+    return true;
+  };
 
   const applyStarter = () => {
     if (!options || prompt.trim()) return;
@@ -1117,6 +1153,8 @@ export default function App() {
   // run whose pictures were all restored meanwhile has nothing left to show.
   const lightboxRun = found && isImageRun(found) ? (lightbox?.binned ? (found.binned_images.length ? { ...found, inputs: [], images: found.binned_images } : null) : found) : null;
   // the Vector viewer shows the run's own versions; from a card of deleted versions it shows THOSE (§35.2). A run with none left to show closes it.
+  const foundVideo = videoView ? state.runs[videoView] : undefined; // the clip in the viewer; one that is gone, or has no clip yet, closes it
+  const videoViewRun = foundVideo && isVideoRun(foundVideo) && foundVideo.video ? foundVideo : null;
   const foundVector = vectorView ? state.runs[vectorView.runId] : undefined;
   const vectorViewRun = foundVector && isVectorRun(foundVector) && (vectorView?.binned ? foundVector.binned_vectors.length > 0 : foundVector.vectors.length > 0) ? foundVector : null;
   // The compare basket's pictures, found among the runs the page holds: one whose run or picture has gone since (deleted, or sent to the bin) is simply not there, so the count and the view
@@ -1129,7 +1167,7 @@ export default function App() {
   const familyRoot = filter.family !== null ? state.runs[filter.family] : undefined; // the run a family view is named for, for its pill, when the page holds it
   const transient = (run: Run) => showsWorking(filter) && working(run) && !matches(run, filter); // in this view only while it works (§29.3)
   // the whole bin, both tabs, whatever project is chosen: what Empty bin deletes (the counts on the bar are for the tab and the project shown)
-  const bin = state.totals ? state.totals.image.deleted + state.totals.music.deleted + state.totals.vector.deleted + state.totals.speech.deleted : null; // (every tab's bin: Empty bin empties all of it)
+  const bin = state.totals ? state.totals.image.deleted + state.totals.music.deleted + state.totals.vector.deleted + state.totals.speech.deleted + state.totals.video.deleted : null; // (every tab's bin: Empty bin empties all of it)
   // the same, as runs and pictures per tab, for the question Empty bin asks (DESIGN.md §33.1)
   const binTotals = state.totals ? binContents(state.totals) : EMPTY_BIN;
   // the one filter bar, shown above the list on both tabs (the Music tab is handed it)
@@ -1164,7 +1202,7 @@ export default function App() {
       <AnnotationsContext.Provider value={annotationActions}>
       <EngineTitlesContext.Provider value={engineTitles}>
         <a className="skip-link" href="#prompt">Skip to the prompt</a>
-        <Header status={status} now={now} busy={modelBusy} tab={tab === "music" ? "music" : tab === "speech" ? "speech" : "image"} musicAvailable={musicAvailable}
+        <Header status={status} now={now} busy={modelBusy} tab={tab === "music" ? "music" : tab === "speech" ? "speech" : tab === "video" ? "video" : "image"} musicAvailable={musicAvailable}
           speech={{ available: !!caps?.speech.available, engine: speechEngine }} onModel={changeModel} />
         <ConnectionBanner connection={state.connection} serverStopping={state.serverStopping} />
         <main className="app-main">
@@ -1172,7 +1210,7 @@ export default function App() {
             <p className="loading" role="status">Connecting to the studio…</p>
           ) : (
             <>
-              <Tabs tab={tab} onTab={changeTab} busy={{ images: imageRuns.some(working), music: musicRuns.some(working), vector: vectorRuns.some(working), builder: builderWorking, speech: speechRuns.some(working) }} />
+              <Tabs tab={tab} onTab={changeTab} busy={{ images: imageRuns.some(working), music: musicRuns.some(working), vector: vectorRuns.some(working), builder: builderWorking, speech: speechRuns.some(working), video: videoRuns.some(working) }} />
               <div className="tab-panel" role="tabpanel" id={panelId("images")} aria-labelledby={tabId("images")} hidden={tab !== "images"}>
               <PromptBar
                 ref={promptRef}
@@ -1261,6 +1299,11 @@ export default function App() {
                           const result = viewerItems(run).find((item) => item.kind === "result");
                           if (result) editThis(viewerKnown(run, result), false);
                         }}
+                        canAnimate={!!caps.video.available}
+                        onAnimateThis={() => {
+                          const result = viewerItems(run).find((item) => item.kind === "result");
+                          if (result) animateThis(viewerKnown(run, result), run, false);
+                        }}
                         onRetry={() => void retry(run)}
                         onCancel={() => requestCancel(run)}
                         onToggleKeep={() => void toggleKeep(run)}
@@ -1326,6 +1369,10 @@ export default function App() {
                   onLoadOlder: () => void loadOlder(), onCancel: requestCancel, onContinue: (run) => void continueReading(run), onRestore: (run) => void restore(run, true), onDelete: setPendingDelete,
                   onListen: (run) => setListening((now) => ({ id: run.id, turn: (now?.turn ?? 0) + 1 })),
                 }} reader={reader} />
+              <VideoPanel hidden={tab !== "video"} caps={caps} status={status} store={store} runs={videoRuns} runsReady={runsReady} filterBar={filterBar} loadProblem={problem} empty={emptyFor("video")}
+                isTransient={transient} viewScope={viewScope} projects={projectControls} more={more} loadingOlder={loadingOlder} now={now} push={push} choices={videoChoices} animate={animate}
+                pasteRef={videoPaste} onRun={(run: VideoRun) => dispatch({ type: "runUpsert", run })} onLicenceChanged={refreshCaps} onLoadOlder={() => void loadOlder()}
+                onCancel={requestCancel} onToggleKeep={(run) => void toggleKeep(run)} onRestore={(run) => void restore(run, true)} onDelete={setPendingDelete} onOpen={(run) => setVideoView(run.id)} />
               <BuilderPanel hidden={tab !== "builder"} caps={caps} projects={projects} push={push} onWorking={setBuilderWorking} tick={builderTick} attachRef={builderAttach} command={builderCommand} history={historyPictures}
                 integration={{ onUse: promptUse.useIn, onGenerate: (using) => void promptUse.generate(using, false), onQuick: (using) => void promptUse.generate(using, true) }} />
               <VectorPanel
@@ -1371,11 +1418,13 @@ export default function App() {
           onDeleteVersion={(item, position, of) => vectorViewRun && askDeleteItem(vectorViewRun, "vector", item, position, of)}
           onClose={() => setVectorView(null)}
         />
+        <VideoViewer run={videoViewRun} onClose={() => setVideoView(null)} />
         <Lightbox
           run={lightboxRun}
           index={lightbox?.index ?? 0}
           notice={lightbox?.notice ?? null}
           canEdit={canEdit}
+          canAnimate={!!caps?.video.available}
           readOnly={!!lightbox?.binned || !!lightboxRun?.deleted_at}
           making4k={making4k}
           enlarging={enlarging}
@@ -1384,6 +1433,7 @@ export default function App() {
           onMake4K={(image) => void make4k(image)}
           onEnlarge={(image) => void enlargeImage(image)}
           onEditThis={(image) => editThis(image, true)}
+          onAnimateThis={(image, run) => animateThis(image, run, true)}
           onDeletePicture={(image, position, of) => lightboxRun && askDeleteItem(lightboxRun, "image", image, position, of)}
           onIndex={(index) => setLightbox((current) => (current ? { ...current, index, notice: undefined } : current))}
           onRegenerateLarger={(image) => lightboxRun && void regenerateLarger(lightboxRun, image)}

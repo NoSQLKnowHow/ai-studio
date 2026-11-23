@@ -2,13 +2,13 @@ import type { BuilderCaps, BuilderLimits } from "./builderTypes";
 import type { ReadingInfo, ReadingVoice, SourceInfo, SpeechCaps, SpeechLicence, SpeechLimits } from "./speechTypes";
 // JSON shapes returned by the backend (backend/studio/serialize.py, api.py, jobs.py).
 
-/** Pictures are made in one of two modes; music (DESIGN.md §26), vector (§31) and speech (§38) are more kinds of run, each on its own tab. */
+/** Pictures are made in one of two modes; music (DESIGN.md §26), vector (§31), speech (§38) and video (§46) are more kinds of run, each on its own tab. */
 export type ImageMode = "generate" | "edit";
-export type Mode = ImageMode | "music" | "vector" | "speech";
-/** The three models the studio can hold, one at a time (DESIGN.md §26.4, §38.3). A Vector run is drawn by the image model, so it has no model of its
- *  own: on the Vector tab the model pill and the Load / Unload button act on "image" (§31.12.8). "speech" is one engine in one variant, which the worker's
+export type Mode = ImageMode | "music" | "vector" | "speech" | "video";
+/** The four models the studio can hold, one at a time (DESIGN.md §26.4, §38.3, §46.6). A Vector run is drawn by the image model, so it has no model of its
+ *  own: on the Vector tab the model pill and the Load / Unload button act on "image" (§31.12.8). "speech" and "video" are one engine in one variant, which the worker's
  *  status names (`engine`, `variant`). */
-export type ModelName = "image" | "music" | "speech";
+export type ModelName = "image" | "music" | "speech" | "video";
 export type RunStatus = "queued" | "running" | "done" | "failed" | "canceled";
 export type WorkerState = "unloaded" | "loading" | "ready" | "busy" | "error" | "unavailable";
 
@@ -100,12 +100,15 @@ export type MusicStage = "compose" | "render" | "finish";
 /** A Vector run's two stages (DESIGN.md §31.12.5): the model draws the picture, then the clean-up traces it into layers. */
 export type VectorStage = "draw" | "trace";
 
+/** The stages of a clip (DESIGN.md §46.8), in the order they happen: the LTX program's own steps. `denoise` and `refine` are the two passes of the model and count steps (8, then 3). */
+export type VideoStage = "start" | "text" | "denoise" | "upscale" | "refine" | "decode" | "write";
+
 export interface Progress {
   image: number; // the picture (or the track, or the vector version) being made, 1-based
   of: number;
   step: number;
   steps: number;
-  stage?: MusicStage | VectorStage; // music: composing (frame by frame), rendering (steps), finishing. Vector: drawing, tracing. Pictures send none.
+  stage?: MusicStage | VectorStage | VideoStage; // music: composing (frame by frame), rendering (steps), finishing. Vector: drawing, tracing. Video: its stages. Pictures send none.
 }
 
 /** A project folder (DESIGN.md §32): a name that runs are filed under, with how many runs of each tab it holds (runs in the bin are not counted). */
@@ -115,7 +118,7 @@ export interface Project {
   created_at: string;
   // `vector` is optional because the list of projects was written before Vector (§32.4) and §31.12 does not say whether it counts them: the page
   // treats a missing number as "not known" and never shows it as 0 (see FilterBar and `projectContents`).
-  counts: { image: number; music: number; vector?: number; speech?: number; prompts?: number; chats?: number };
+  counts: { image: number; music: number; vector?: number; speech?: number; video?: number; prompts?: number; chats?: number };
 }
 
 /** Where a run came from when it was made from a saved prompt (DESIGN.md §37.3 rule 3): the prompt, the version, whether the prompt is in the bin or gone (then `title` may be null),
@@ -404,11 +407,74 @@ export interface SpeechRun extends RunBase {
   reading: ReadingInfo | null; // null for a hidden job
 }
 
-export type Run = ImageRun | MusicRun | VectorRun | SpeechRun;
+// ------------------------------------------------------------------ Video (DESIGN.md §46, version 1.27)
+/** The clip a finished video run made (DESIGN.md §46.10): the numbers are what ffprobe found in the file. `url` is the MP4, which answers `Range`, so a player can seek. */
+export interface VideoInfo {
+  id: string;
+  url: string;
+  download_url: string;
+  poster_url: string;
+  thumb_url: string | null;
+  width: number;
+  height: number;
+  fps: number;
+  frames: number;
+  seconds: number;
+  seed: number;
+  has_audio: boolean;
+  audio_channels: number | null;
+  audio_rate: number | null;
+  bytes: number;
+  note: string | null; // anything the checks found that the person should know ("This clip has no sound track.")
+}
+
+/** What a video run used (DESIGN.md §46.9). `seconds` is as asked, `frames` as made (8n + 1). `start` is the start picture (image mode), which is the run's first input. */
+export interface VideoOptionsSnapshot {
+  mode: "text" | "image";
+  quality: string;
+  engine: string;
+  variant: string;
+  width: number;
+  height: number;
+  seconds: number;
+  frames: number;
+  fps: number;
+  seed: number;
+  seed_was_random: boolean;
+  sound: string;
+  keep_sound: boolean;
+  segments: number;
+  start: { image: number; frame: number; strength: number } | null;
+}
+
+export interface VideoSegment {
+  idx: number;
+  status: RunStatus;
+  seconds: number;
+}
+
+/** A clip (DESIGN.md §46.10). It has no pictures, tracks or versions of its own; its start picture is `inputs[0]`. */
+export interface VideoRun extends RunBase {
+  mode: "video";
+  options: VideoOptionsSnapshot;
+  lyrics: null;
+  inputs: RunInput[];
+  images: [];
+  binned_images: [];
+  tracks: [];
+  binned_tracks: [];
+  vectors: [];
+  binned_vectors: [];
+  video: VideoInfo | null; // null until the clip exists
+  segments: VideoSegment[];
+}
+
+export type Run = ImageRun | MusicRun | VectorRun | SpeechRun | VideoRun;
 
 export const isMusicRun = (run: Run): run is MusicRun => run.mode === "music";
 export const isVectorRun = (run: Run): run is VectorRun => run.mode === "vector";
 export const isSpeechRun = (run: Run): run is SpeechRun => run.mode === "speech";
+export const isVideoRun = (run: Run): run is VideoRun => run.mode === "video";
 export const isImageRun = (run: Run): run is ImageRun => run.mode === "generate" || run.mode === "edit";
 
 /** How far the load that is under way has got (DESIGN.md §39.3): `worker.progress`, `null` when no load is, absent from an older server. */
@@ -442,12 +508,12 @@ export interface Status {
   // enlarge_waiting: images whose Enlarge is waiting for the GPU (DESIGN.md §28.3); order: the waiting runs in the order they will be worked on, which tells a page that the
   // order changed when nothing else did (§40.5; an older server does not send it)
   queue: { running: string | null; queued: number; cap: number; enlarge_waiting: string[]; order?: string[] };
-  memory: { total_gb?: number; available_gb?: number; min_free_gb: number | null; music_min_free_gb: number | null; worker_rss_gb: number | null };
+  memory: { total_gb?: number; available_gb?: number; min_free_gb: number | null; music_min_free_gb: number | null; video_min_free_gb?: number | null; worker_rss_gb: number | null };
 }
 
 /** What the Queue panel says of one job (DESIGN.md section 40.4): `kind` is the model it needs, `movable` is false once it has started (and for the job that is going),
  *  `position` is its place among the waiting jobs (null for the job that is going). */
-export type QueueKind = "image" | "music" | "vector" | "speech" | "voice";
+export type QueueKind = "image" | "music" | "vector" | "speech" | "video" | "voice";
 export interface QueueItem {
   id: string;
   kind: QueueKind;
@@ -472,6 +538,75 @@ export interface QueueMove {
 export interface Range {
   min: number;
   max: number;
+}
+
+/** The video licence the person must acknowledge before the first clip (DESIGN.md §46.7). `summary` is the model card's own words and is shown marked as a summary; `url` is the binding text. */
+export interface VideoLicence {
+  name: string;
+  summary: string;
+  url: string;
+  revision: string;
+  statement: string;
+  noncommercial: boolean;
+  notice: string;
+  accepted: boolean;
+  accepted_at: string | null;
+  outdated: boolean; // they acknowledged an earlier revision, so the panel says why it asks again
+}
+
+/** The licence as the engine states it (DESIGN.md §46.7): the fields of `VideoLicence` that are the engine's, not the person's. */
+export type VideoEngineLicence = Pick<VideoLicence, "name" | "summary" | "url" | "revision" | "statement" | "noncommercial" | "notice">;
+
+/** `capabilities.video` (DESIGN.md §46.10): whether a clip can be made on this machine (`available`), why not, the licence, and what is on the machine right now. */
+export interface VideoCaps {
+  available: boolean;
+  state: "checking" | "ready" | "unavailable";
+  reason: string | null;
+  hint: string | null;
+  engine: {
+    id: string; title: string; model_id: string; variants: string[]; default_variant: string; memory_gb: number; interruptible: boolean; image_to_video: boolean; sound: boolean; notes: string;
+    licence: VideoEngineLicence; // what the engine says of its own licence: the words of the file note and of the panel, without the person's acknowledgement (that is `licence` below)
+  };
+  licence: VideoLicence;
+  qualities: { id: string; label: string; available: boolean; reason: string | null }[];
+  chaining: { available: boolean; reason: string | null };
+  tools: { ffmpeg: boolean; ffprobe: boolean };
+  memory: { ok: boolean; message: string | null }; // whether a clip could start for want of free memory right now
+  clips_bytes: number; // what the clips take on disk
+}
+
+/** The table that says how long a clip takes (DESIGN.md §46.8): (seconds of video, seconds of work) at `reference_pixels` and 24 frames a second, the first point being a run's fixed
+ *  cost. `kind` is `measured` for a table taken on the Spark and `stand-in` for the test engine's. */
+export interface VideoEstimateTable {
+  points: [number, number][];
+  reference_pixels: number;
+  kind: "measured" | "stand-in";
+  source: string; // where the table's numbers are from, in words: "measured on one Spark setup, 2026-11-19/20 (no natten)"
+  overhead_s: number;
+  buckets: number[]; // the upper edges, in seconds, of the length buckets clips are sorted into: the form's own length choices
+  history: ClipTiming[]; // how long the clips made on THIS installation took, newest first (DESIGN.md §46.8, as changed)
+}
+
+/** How long one clip that was made here took: what was asked for (the length as asked, the size and the frame rate, which the work depends on) and `took`, seconds from its start to its
+ *  end, loading the models included. */
+export interface ClipTiming {
+  seconds: number;
+  width: number;
+  height: number;
+  fps: number;
+  took: number;
+}
+
+/** What the video form needs from the page (DESIGN.md §46.10): the limits the server enforces, so the page repeats none of them. */
+export interface VideoLimits {
+  size: { multiple: number; min: number; max: number; default: [number, number]; presets: { id: string; label: string; width: number; height: number }[] };
+  seconds: { min: number; max: number; default: number; choices: number[]; long_from: number; long_note: string };
+  fps: number[];
+  images: { start: number; end: number };
+  sound_chars: number;
+  prompt_chars: number;
+  estimate: VideoEstimateTable;
+  qualities: { default: string; offered: string[] };
 }
 
 /** What the music model needs from the page (DESIGN.md §26.3): the limits the server enforces. */
@@ -573,12 +708,14 @@ export interface Capabilities {
     vector: VectorLimits;
     builder: BuilderLimits; // DESIGN.md §37.4
     speech: SpeechLimits; // DESIGN.md §38.9
+    video: VideoLimits; // DESIGN.md §46.10
     annotations?: AnnotationLimits; // DESIGN.md §45.7; missing from a server of before 1.26
   };
   music: MusicAvailability;
   vector: VectorAvailability;
   builder: BuilderCaps; // the Prompt builder: set up? what is known of Ollama (§37.4)
   speech: SpeechCaps; // the Speech tab: can it work here, and what each engine says (§38.3, §38.9)
+  video: VideoCaps; // the Video tab: can it work here, the licence, and what is on the machine (§46.10)
   upscaler: UpscalerStatus;
   /** More like this (§43.6): whether Variations of this picture can be made here, and the reason if not. Missing from a server of before 1.24, which has no More like this. */
   variations?: { from_picture: boolean; reason: string | null };
@@ -692,6 +829,24 @@ export interface VectorRecipeRequest {
 export interface VectorRecipe {
   positive: string;
   negative: string;
+}
+
+/** A clip (DESIGN.md §46.10). `options` has the keys of the form; `input_images` is the start picture (Image to video), named as an edit's are. */
+export interface CreateVideoBody {
+  mode: "video";
+  prompt: string; // what happens
+  input_images?: InputRef[];
+  options: {
+    mode: "text" | "image";
+    quality: string;
+    width: number;
+    height: number;
+    seconds: number;
+    fps: number;
+    seed: number | null;
+    sound: string;
+    keep_sound: boolean;
+  };
 }
 
 export interface RunsPage {

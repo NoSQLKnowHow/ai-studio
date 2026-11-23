@@ -272,11 +272,12 @@ const EMPTY_ALL: Record<TabKind, { title: string; body: string }> = {
   music: { title: "No music yet", body: "Describe the music above and press Make music. Every track lands here with its description and settings." },
   vector: { title: "No vectors yet", body: "Describe your idea above and press Make vector. Every SVG lands here with its settings and its layers." },
   speech: { title: "No readings yet", body: "Give it a text above, choose a voice and press Make reading. Every reading lands here, and you can listen to it while it is being made." },
+  video: { title: "No clips yet", body: "Say what happens above and press Make clip. Every clip lands here with its words and settings, and you play it right on its card." },
 };
 // what each tab calls its runs, in the empty states of the Deleted and Kept views, and what the tab is called when a project's view is empty
-const EMPTY_DELETED: Record<TabKind, string> = { image: "No deleted images", music: "No deleted music", vector: "No deleted vectors", speech: "No deleted readings" };
-const EMPTY_KEPT: Record<TabKind, string> = { image: "No kept images yet", music: "No kept music yet", vector: "No kept vectors yet", speech: "No readings yet" };
-const TAB_NAME: Record<TabKind, string> = { image: "Images", music: "Music", vector: "Vector", speech: "Speech" };
+const EMPTY_DELETED: Record<TabKind, string> = { image: "No deleted images", music: "No deleted music", vector: "No deleted vectors", speech: "No deleted readings", video: "No deleted clips" };
+const EMPTY_KEPT: Record<TabKind, string> = { image: "No kept images yet", music: "No kept music yet", vector: "No kept vectors yet", speech: "No readings yet", video: "No kept clips yet" };
+const TAB_NAME: Record<TabKind, string> = { image: "Images", music: "Music", vector: "Vector", speech: "Speech", video: "Video" };
 
 /** What is on, in words, for the empty list of a search (DESIGN.md §45.3): `search “fox”, model m, made from 1 Nov to 8 Nov`, then where it was looked for (Kept, Deleted, a project). */
 export function narrowedText(filter: HistoryFilter, project: Project | null): string {

@@ -13,11 +13,17 @@ __all__ = [
     "PipelineUnavailable", "make_pipeline", "probe_pipeline",
 ]
 
-KINDS = ("image", "music", "speech")  # which model a worker holds (DESIGN.md §26.4, §38.3)
+KINDS = ("image", "music", "speech", "video")  # which model a worker holds (DESIGN.md §26.4, §38.3, §46.6)
 
 
-def probe_pipeline(name: str, kind: str = "image", engine: str = "") -> dict[str, Any]:
-    """Cheap capability check without loading weights. Raises PipelineError. A speech worker is asked about one engine (DESIGN.md §38.3)."""
+def probe_pipeline(name: str, kind: str = "image", engine: str = "", engine_config: Any = None) -> dict[str, Any]:
+    """Cheap capability check without loading weights. Raises PipelineError. A speech or video worker is asked about one engine (DESIGN.md §38.3, §46.6); a video engine is also given
+    what the server says of its environment (`engine_config`, as `Settings.video_engine_config` makes it)."""
+    if kind == "video":
+        from ..video.engine import EngineConfig
+        from ..video.registry import probe_engine as probe_video_engine
+
+        return probe_video_engine(engine, EngineConfig.from_dict(engine_config))
     if kind == "speech":
         from ..speech.registry import probe_engine
 
@@ -40,7 +46,14 @@ def probe_pipeline(name: str, kind: str = "image", engine: str = "") -> dict[str
 
 
 def make_pipeline(name: str, *, model: str, cpu_offload: bool, hub_mode: str, fake_step_delay_ms: int, kind: str = "image",
-                  engine: str = "", variant: str = "") -> Any:
+                  engine: str = "", variant: str = "", engine_config: Any = None) -> Any:
+    if kind == "video":  # one video engine in one of its variants (DESIGN.md §46.6); `name` only says whether the fake may be used
+        from ..video.engine import EngineConfig
+        from ..video.registry import engine_ids, make_engine
+
+        if engine not in engine_ids(name):
+            raise ValueError(f"The {engine!r} video engine does not go with the {name!r} pipeline.")
+        return make_engine(engine, EngineConfig.from_dict(engine_config, step_delay_ms=fake_step_delay_ms if name == "fake" else 0, hub_mode=hub_mode), variant)
     if kind == "speech":  # one speech engine in one of its variants (DESIGN.md §38.3); `name` only says whether the fakes may be used
         from ..speech.engine import EngineSettings
         from ..speech.registry import info, make_engine

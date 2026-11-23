@@ -20,6 +20,8 @@ _FALSE = {"0", "false", "no", "off", ""}
 UPSCALER_DEVICES = ("auto", "cuda", "cpu")  # STUDIO_UPSCALER_DEVICE (DESIGN.md §28.3)
 HUB_MODES = ("auto", "offline", "online")  # STUDIO_LOCAL_FILES_ONLY: auto (cache first), true/offline, false/online (§26.11)
 OLLAMA_THINK_MODES = ("on", "off", "model")  # STUDIO_OLLAMA_THINK (DESIGN.md §37.4): send think:true, think:false, or nothing
+VIDEO_QUANTIZATIONS = ("none", "fp8-cast", "nvfp4-prequant")  # STUDIO_VIDEO_QUANTIZATION: the values of the LTX program's own --quantization (DESIGN.md §46.12)
+VIDEO_OFFLOADS = ("none", "cpu")  # STUDIO_VIDEO_OFFLOAD: the program's --offload cpu, or nothing
 BUILDER_LLMS = ("real", "fake")  # STUDIO_BUILDER_LLM: the real Ollama, or the scripted model the page's tests use
 _KEEP_ALIVE = re.compile(r"^-?[0-9]+(s|m|h)?$")  # what Ollama's keep_alive takes that the studio allows: seconds, or a number with s, m or h
 
@@ -97,6 +99,31 @@ class Settings:
     speech_decode_timeout_s: int = 30  # how long it may take to read one recording
     speech_temp_hours: int = 24  # how long the candidates of a voice design and an uploaded recording that was not saved are kept; and an audiobook file after it was made or last taken
     speech_audiobook_kbps: int = 64  # the bit rate of the M4B audiobook file (mono AAC), in kilobits a second (DESIGN.md §44.4)
+    # Video: clips made by LTX-2.5 (DESIGN.md §46.12, as adjusted by what was measured on the Spark). The real engine runs the LTX program as a child process of the video
+    # worker, in an environment of its own (§46.6 option 2): the person's own LTX-2 clone on the host, shared into the container at the same path (`video_ltx_dir`, the first way),
+    # or an environment the image built (`video_libs`, the second way); `video_command` and `video_python` say it by hand. The five model files are found under `video_models_dir`.
+    # Nothing here downloads anything: the files are the person's own (they were fetched once, by hand, before the studio had a Video tab).
+    video_ltx_dir: Optional[Path] = None  # the LTX-2 clone on the host, with its `.venv` and `packages/` (STUDIO_VIDEO_LTX_DIR); the program is `<it>/.venv/bin/python -m ltx_pipelines.distilled`
+    video_models_dir: Optional[Path] = None  # the folder that holds diffusion_models/, text_encoders/, vae/, latent_upscale_models/ and model_patches/ (STUDIO_VIDEO_MODELS_DIR)
+    # The five files the program needs, each a path relative to `video_models_dir` (or absolute). Empty means "the one file in the usual folder that looks right" (see
+    # `studio/video/engines/ltx_files.py`), and an unclear choice is reported by the capability check with the names it found, never guessed.
+    video_transformer: str = ""
+    video_text_encoder: str = ""
+    video_video_vae: str = ""
+    video_audio_vae: str = ""
+    video_upsampler: str = ""
+    video_command: tuple[str, ...] = ()  # the whole command that starts the program, e.g. `/ltx/.venv/bin/python -m ltx_pipelines.distilled`; empty = built from video_python / video_ltx_dir / video_libs
+    video_python: Optional[Path] = None  # the interpreter of the program's environment; the command is then `<python> -m ltx_pipelines.distilled`
+    video_libs: Optional[Path] = None  # the folder the image builds that environment in (`<libs>/ltx/bin/python`); set by the image, not by a person
+    video_extra_args: tuple[str, ...] = ()  # more arguments for the program (for example `--chunked`), put last on its command line
+    video_min_free_gb: Optional[float] = None  # the memory check before a clip; None = the engine's own estimate (real pipeline only), 0 = off
+    video_min_free_disk_gb: float = 5.0  # the disk space that must stay free after a clip's estimated size (DESIGN.md §46.9)
+    video_max_seconds: int = 30  # the longest clip: one pass of the model, as far as the Spark has been seen to make (30 s in 1,036 s)
+    video_quantization: str = "none"
+    video_offload: str = "none"
+    video_timeout_min: int = 0  # the most minutes one clip may take before the program is stopped; 0 = no limit
+    video_ffmpeg: str = "ffmpeg"  # makes the poster, the thumbnail and the final file; the program that reads a clip's facts is the next
+    video_ffprobe: str = "ffprobe"
     fake_step_delay_ms: int = 30
     static_dir: Optional[Path] = None  # built web UI; None = <repo>/frontend/dist if present
 
@@ -112,6 +139,20 @@ class Settings:
     def speech_model_for(self, engine_id: str) -> str:
         """The model the person chose for a speech engine (STUDIO_SPEECH_<ID>_MODEL), or "" for the engine's own default."""
         return dict(self.speech_models).get(engine_id, "")
+
+    def video_engine_config(self) -> dict[str, object]:
+        """What the video worker is told about the environment of the video engine, as plain JSON (`--engine-config`): the worker is a separate process, and it is given these
+        explicitly instead of reading them from the environment again, so that a server started with other settings than its environment (a test) is never contradicted."""
+        return {
+            "models_dir": str(self.video_models_dir) if self.video_models_dir else "", "ltx_dir": str(self.video_ltx_dir) if self.video_ltx_dir else "",
+            # where the program's caches go (triton, inductor, Hugging Face, torch): under the data folder, which is the one place the studio's user can always write
+            "cache_dir": str(self.data_dir / "video-cache"),
+            "files": {"transformer": self.video_transformer, "text_encoder": self.video_text_encoder, "video_vae": self.video_video_vae,
+                      "audio_vae": self.video_audio_vae, "upsampler": self.video_upsampler},
+            "command": list(self.video_command), "python": str(self.video_python) if self.video_python else "", "libs": str(self.video_libs) if self.video_libs else "",
+            "extra_args": list(self.video_extra_args), "quantization": self.video_quantization, "offload": self.video_offload, "timeout_min": self.video_timeout_min,
+            "ffmpeg": self.video_ffmpeg, "ffprobe": self.video_ffprobe,
+        }
 
     @property
     def upscaler_model_path(self) -> Path:
@@ -255,6 +296,26 @@ class Settings:
                               f"(the engines are: {', '.join(REAL_ENGINES)}).")
                 speech_engines = tuple(e for e in speech_engines if e not in unknown)
 
+        # Video (DESIGN.md §46.12). The two command settings are split like a shell command line; a name that is not one of the program's own values is refused by name.
+        try:
+            video_command = tuple(shlex.split(env.get("STUDIO_VIDEO_COMMAND", "")))
+        except ValueError as exc:  # an unclosed quote
+            errors.append(f"STUDIO_VIDEO_COMMAND is not a command line ({exc}).")
+            video_command = ()
+        try:
+            video_extra_args = tuple(shlex.split(env.get("STUDIO_VIDEO_EXTRA_ARGS", "")))
+        except ValueError as exc:
+            errors.append(f"STUDIO_VIDEO_EXTRA_ARGS is not a list of arguments ({exc}).")
+            video_extra_args = ()
+        video_quantization = env.get("STUDIO_VIDEO_QUANTIZATION", "").strip().lower() or cls.video_quantization
+        if video_quantization not in VIDEO_QUANTIZATIONS:
+            errors.append(f"STUDIO_VIDEO_QUANTIZATION={video_quantization!r} must be one of: {', '.join(VIDEO_QUANTIZATIONS)}.")
+            video_quantization = cls.video_quantization
+        video_offload = env.get("STUDIO_VIDEO_OFFLOAD", "").strip().lower() or cls.video_offload
+        if video_offload not in VIDEO_OFFLOADS:
+            errors.append(f"STUDIO_VIDEO_OFFLOAD={video_offload!r} must be one of: {', '.join(VIDEO_OFFLOADS)}.")
+            video_offload = cls.video_offload
+
         pipeline = env.get("STUDIO_PIPELINE", "real").strip().lower()
         if pipeline not in PIPELINES:
             errors.append(f"STUDIO_PIPELINE={pipeline!r} must be one of: {', '.join(PIPELINES)}.")
@@ -330,6 +391,25 @@ class Settings:
             speech_decode_timeout_s=integer("STUDIO_SPEECH_DECODE_TIMEOUT_S", cls.speech_decode_timeout_s, 2, 300),
             speech_temp_hours=integer("STUDIO_SPEECH_TEMP_HOURS", cls.speech_temp_hours, 1, 720),
             speech_audiobook_kbps=integer("STUDIO_SPEECH_AUDIOBOOK_KBPS", cls.speech_audiobook_kbps, 16, 320),
+            video_ltx_dir=Path(env["STUDIO_VIDEO_LTX_DIR"].strip()).expanduser() if env.get("STUDIO_VIDEO_LTX_DIR", "").strip() else None,
+            video_models_dir=Path(env["STUDIO_VIDEO_MODELS_DIR"].strip()).expanduser() if env.get("STUDIO_VIDEO_MODELS_DIR", "").strip() else None,
+            video_transformer=env.get("STUDIO_VIDEO_TRANSFORMER", "").strip(),
+            video_text_encoder=env.get("STUDIO_VIDEO_TEXT_ENCODER", "").strip(),
+            video_video_vae=env.get("STUDIO_VIDEO_VIDEO_VAE", "").strip(),
+            video_audio_vae=env.get("STUDIO_VIDEO_AUDIO_VAE", "").strip(),
+            video_upsampler=env.get("STUDIO_VIDEO_UPSAMPLER", "").strip(),
+            video_command=video_command,
+            video_python=Path(env["STUDIO_VIDEO_PYTHON"].strip()).expanduser() if env.get("STUDIO_VIDEO_PYTHON", "").strip() else None,
+            video_libs=Path(env["STUDIO_VIDEO_LIBS"].strip()).expanduser() if env.get("STUDIO_VIDEO_LIBS", "").strip() else None,
+            video_extra_args=video_extra_args,
+            video_min_free_gb=optional_float("STUDIO_VIDEO_MIN_FREE_GB", 0.0),
+            video_min_free_disk_gb=number("STUDIO_VIDEO_MIN_FREE_DISK_GB", cls.video_min_free_disk_gb, 0, 100_000),
+            video_max_seconds=integer("STUDIO_VIDEO_MAX_SECONDS", cls.video_max_seconds, 1, 300),
+            video_quantization=video_quantization,
+            video_offload=video_offload,
+            video_timeout_min=integer("STUDIO_VIDEO_TIMEOUT_MIN", cls.video_timeout_min, 0, 1440),
+            video_ffmpeg=text("STUDIO_VIDEO_FFMPEG", cls.video_ffmpeg),
+            video_ffprobe=text("STUDIO_VIDEO_FFPROBE", cls.video_ffprobe),
             fake_step_delay_ms=integer("STUDIO_FAKE_STEP_DELAY_MS", cls.fake_step_delay_ms, 0, 10_000),
             static_dir=Path(env["STUDIO_STATIC_DIR"]).expanduser() if env.get("STUDIO_STATIC_DIR", "").strip() else None,
         )

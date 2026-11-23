@@ -83,6 +83,18 @@ def hold_speech_out(monkeypatch: pytest.MonkeyPatch) -> None:
                                                                    "engines": []})
 
 
+def hold_video_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the Video tab out of `modes` for a test that checks the exact list of modes for another tab (music, vector), as `hold_speech_out` does for Speech (new in 1.27, DESIGN.md §46.10).
+    `modes` lists "video" when its engine can run, which the fake one always can (once its start-up check has finished, which these tests do not wait for, so an exact list in such a
+    test would also depend on timing). The rest of what `video_status` says is kept, so the capabilities keep their shape. What `modes` says about Video is tested in test_video_server.py."""
+    real = JobManager.video_status
+
+    def held(self):
+        return {**real(self), "available": False, "state": "unavailable", "reason": "held out: this test is about another tab", "hint": None}
+
+    monkeypatch.setattr(JobManager, "video_status", held)
+
+
 @pytest.fixture
 def quiet_client(client_factory: Callable[..., TestClient]) -> TestClient:
     return client_factory(quiet=True)

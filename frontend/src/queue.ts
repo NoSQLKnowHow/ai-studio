@@ -6,7 +6,7 @@ import type { QueueItem, QueueKind, QueueMove } from "./types";
 
 /** What the panel calls the model a job needs: a drawing is made with the image model, but it is called a drawing, as its tab is. A voice is a sample or a new voice made
  *  for the Speech tab, which has no card of its own. A kind from a newer server is just a job. */
-const KIND_WORDS: Record<QueueKind, string> = { image: "Image", music: "Music", vector: "Drawing", speech: "Speech", voice: "Voice" };
+const KIND_WORDS: Record<QueueKind, string> = { image: "Image", music: "Music", vector: "Drawing", speech: "Speech", video: "Video", voice: "Voice" };
 export const kindWords = (kind: QueueKind): string => KIND_WORDS[kind] ?? "Job";
 
 /** The place a job dragged to height `y` would take: 0 is before the first waiting job and `rects.length` is after the last. A job is passed when the pointer is below

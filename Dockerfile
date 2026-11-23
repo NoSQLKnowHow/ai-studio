@@ -96,6 +96,43 @@ RUN if [ "$SPEECH_VOXTRAL" = "1" ]; then \
     else echo "NOTE: Voxtral is not built into this image (add --build-arg SPEECH_VOXTRAL=1 to build it); its engine will say so"; fi
 ENV STUDIO_SPEECH_LIBS=/opt/speech-libs
 
+# Video (DESIGN.md section 46.6). LTX-2.5 is made by Lightricks' own program (github.com/Lightricks/LTX-2), which has an environment of its own: Python 3.12, PyTorch 2.13 built for CUDA
+# 13.2 (torch 2.13.0+cu132, torchaudio 2.11.1, torchvision 0.28.0, torchcodec 0.17.0, natten, transformers 5.14.1, triton 3.7.1, ...), and ltx-core, ltx-pipelines and ltx-trainer 1.6.2 installed
+# editable from packages/ of the clone. THIS IMAGE'S PYTORCH IS NOT THAT ONE (NVIDIA's release 25.10: torch 2.9.0a0 for CUDA 13.0), so the program cannot use the image's, and its wheels bring
+# their own CUDA user-space libraries (the driver is the host's, shared by the nvidia runtime). The studio runs the program as a child process of its video worker, with a cleaned environment
+# (none of NVIDIA's LD_LIBRARY_PATH or PYTHONPATH), one clip at a time. Measured working on the Spark 2026-11-19/20, at the commit pinned below.
+#
+# TWO WAYS to have that environment; this image supports both, and the first needs no rebuild at all:
+#   1. (the way to start with) the LTX-2 clone you already made on the Spark, shared into the container read-only at the same path: STUDIO_VIDEO_LTX_DIR in .env (compose.yaml mounts it).
+#      Its .venv/bin/python is a link to /usr/bin/python3, and this image has Python 3.12.3 there too (Ubuntu 24.04), so the host's environment is usable as it is. Nothing below is used.
+#   2. the environment BUILT INTO THE IMAGE, below: the same program made by `uv sync` at the pinned commit, in /opt/video-libs/ltx, off unless asked for, because it adds several GB (the
+#      CUDA 13.2 wheels of PyTorch and the rest of its libraries) to the image and takes a long time to build:
+#        docker compose build --build-arg VIDEO_LTX=1        (the commit is the default below; LTX_COMMIT=<another> to pin another)
+#      NOT TRIED: this step has not been run (it needs Docker, the network and an arm64 machine). If the clone has a uv.lock the sync uses it as it is (--frozen), so that the libraries are
+#      the ones that were measured; if it has none, uv resolves them afresh, which may give other versions. LTX_COMMIT has a default (the one that was measured); a build that names an EMPTY
+#      one stops with a message that says so, since an environment made from "whatever is newest" is not the one that was seen to work. Any other failure (no network, a resolve that
+#      fails) is a note and not a failed build: the Video tab then says the program is not installed, with the reason.
+ARG VIDEO_LTX=0
+ARG LTX_REPO=https://github.com/Lightricks/LTX-2.git
+ARG LTX_COMMIT=daa6b16fc7f0f1628f2c9e36a303e3312b333cc6
+ARG LTX_PYTHON=3.12
+ARG LTX_UV_SYNC_ARGS=
+RUN mkdir -p /opt/video-libs && if [ "$VIDEO_LTX" = "1" ]; then \
+        if [ -z "$LTX_COMMIT" ]; then \
+            echo "ERROR: VIDEO_LTX=1 needs LTX_COMMIT, the commit of $LTX_REPO that you have seen work on this machine." >&2; \
+            echo "       On the Spark:  git -C ~/ltx-experiment/LTX-2 rev-parse HEAD   then put LTX_COMMIT=<that> in .env and build again." >&2; \
+            exit 1; \
+        fi; \
+        (pip install -c /app/ngc-pins.txt uv \
+            && export UV_PYTHON_INSTALL_DIR=/opt/video-libs/python UV_CACHE_DIR=/tmp/uv-cache UV_PROJECT_ENVIRONMENT=/opt/video-libs/ltx \
+            && git clone "$LTX_REPO" /opt/video-libs/ltx-src \
+            && git -C /opt/video-libs/ltx-src checkout --detach "$LTX_COMMIT" \
+            && (cd /opt/video-libs/ltx-src && if [ -f uv.lock ]; then FROZEN=--frozen; else FROZEN=; fi && uv sync $FROZEN $LTX_UV_SYNC_ARGS --python "$LTX_PYTHON") \
+            && chmod -R a+rX /opt/video-libs && rm -rf /tmp/uv-cache) \
+        || echo "NOTE: the LTX environment could not be built; the Video tab will say the program is not installed (DESIGN.md section 46.6)"; \
+    else echo "NOTE: the LTX program is not built into this image (set STUDIO_VIDEO_LTX_DIR to your LTX-2 clone on the host, or add --build-arg VIDEO_LTX=1 to build it, or set STUDIO_VIDEO_COMMAND); the Video tab will say so"; fi
+ENV STUDIO_VIDEO_LIBS=/opt/video-libs
+
 COPY backend/studio /app/backend/studio
 COPY docker/ /app/docker/
 COPY scripts/minimax_music.py /app/scripts/minimax_music.py

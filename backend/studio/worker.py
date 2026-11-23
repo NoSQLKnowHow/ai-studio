@@ -6,7 +6,7 @@ progress bars and C libraries can never corrupt the protocol channel.
 
 Commands: {"cmd": "load"} | {"cmd": "run", "job": {...}} | {"cmd": "cancel", "run_id": "..."}
           | {"cmd": "shutdown"}
-Events:   hello, state, load_failed, run_started, progress, image_done, track_done, piece_done,
+Events:   hello, state, load_failed, run_started, progress, image_done, track_done, piece_done, video_done,
           run_finished, run_failed, run_canceled, protocol_error, bye
 
 A worker holds one model (`--kind image` or `--kind music`, DESIGN.md §26.4). A music job is
@@ -17,6 +17,10 @@ reported with `track_done` (`idx`, `seed`, `path`, `seconds`, `sample_rate`, `ch
 A speech worker (`--kind speech --engine <id> --variant <v>`, DESIGN.md §38.3) holds one engine and one of its variants. Its job is some pieces of text to
 speak (see `speech/job.py`); each finished piece is written as a WAV, with the pause that follows it already in the audio, and reported with
 `piece_done` (`key`, `path`, `frames`, `sample_rate`, `seconds`).
+
+A video worker (`--kind video --engine <id> --variant <v> --engine-config <json>`, DESIGN.md §46.6) holds one video engine. Its job is one clip (see `video/job.py`); the engine makes it (the
+real one runs the LTX program as a child process and ends it on Cancel), progress is reported with its `stage` (text, denoise, upscale, refine, decode, write) and, for the two
+denoising stages, the step, and the finished file is reported with `video_done` (`path`, relative to the data folder; the server reads the file's own facts).
 
 Commands are read by a thread of their own, so a cancel is seen while a run is under way. It
 stops the run at the next step (or before the next image, or once a model load in progress has
@@ -192,6 +196,8 @@ class Worker:
                 self._run_music(job_dict)
             elif self.kind == "speech":
                 self._run_speech(job_dict)
+            elif self.kind == "video":
+                self._run_video(job_dict)
             else:
                 self._run(job_dict)
         finally:
@@ -420,11 +426,73 @@ class Worker:
         self.emit("run_finished", run_id=job.run_id, completed=completed)
 
 
-def run_probe(pipeline: str, emit: Emitter, kind: str = "image", engine: str = "") -> int:
+    # ------------------------------------------------------------------ video
+    def _run_video(self, job_dict: Any) -> None:
+        """Make the one clip of a video job and report it (DESIGN.md §46.6). The engine does the work, in whatever way it does (the real one runs a program of its own); this checks
+        the job, wires Cancel and the progress to the engine, and turns what comes back into events."""
+        from .pipelines import Canceled, PipelineError
+        from .video.job import VideoJob
+
+        run_id = job_dict.get("run_id") if isinstance(job_dict, dict) else None
+        try:
+            job = VideoJob.from_dict(job_dict, self.data_dir)
+        except ValueError as exc:
+            self.emit("run_failed", run_id=run_id, completed=0, error={"kind": "error", "message": f"Malformed job: {exc}", "hint": None})
+            return
+
+        if not self.loaded and not self.load():
+            self.emit("run_failed", run_id=job.run_id, completed=0, error=self.last_load_error)
+            return
+        if job.run_id in self._canceled:  # cancelled while the engine was getting ready
+            self.emit("run_canceled", run_id=job.run_id, completed=0)
+            return
+        self.emit("run_started", run_id=job.run_id)
+
+        last = 0.0
+        stage_seen = ""
+
+        def on_progress(stage: str, step: int, steps: int) -> None:
+            """The engine's report: sent to the API when the stage changes, at the first and last step of a stage, and otherwise every PROGRESS_INTERVAL. Raises Canceled when
+            the person pressed Cancel, which is how an engine that is making a clip is stopped between two reports."""
+            nonlocal last, stage_seen
+            if job.run_id in self._canceled:
+                raise Canceled()
+            now = time.monotonic()
+            if stage != stage_seen or step in (0, 1, steps) or now - last >= PROGRESS_INTERVAL:
+                stage_seen, last = stage, now
+                self.emit("progress", run_id=job.run_id, image=1, of=1, step=step, steps=steps, stage=stage)
+
+        started = time.monotonic()
+        try:
+            clip = self.pipeline.generate(job.request(self.data_dir), on_progress, lambda: job.run_id in self._canceled)
+            path = Path(clip.path).resolve()
+            rel = path.relative_to(self.data_dir).as_posix()
+        except Canceled:
+            log.info("run %s canceled while its clip was being made", job.run_id)
+            self.emit("run_canceled", run_id=job.run_id, completed=0)
+            return
+        except PipelineError as exc:
+            self.emit("run_failed", run_id=job.run_id, completed=0, error=exc.as_dict())
+            return
+        except OSError as exc:
+            message = ("The disk is full; the clip could not be saved." if exc.errno == errno.ENOSPC else f"The clip could not be saved: {exc.strerror or exc}")
+            self.emit("run_failed", run_id=job.run_id, completed=0, error={"kind": "error", "message": message, "hint": None})
+            return
+        except Exception as exc:
+            log.exception("video generation crashed")
+            self.emit("run_failed", run_id=job.run_id, completed=0, error={"kind": "error", "message": f"{type(exc).__name__}: {exc}", "hint": None})
+            return
+        took = time.monotonic() - started
+        log.info("run %s clip done in %.1fs (%d frames, %dx%d)", job.run_id, took, job.num_frames, job.width, job.height)
+        self.emit("video_done", run_id=job.run_id, idx=0, seed=job.seed, path=rel, work_seconds=round(took, 3))
+        self.emit("run_finished", run_id=job.run_id, completed=1)
+
+
+def run_probe(pipeline: str, emit: Emitter, kind: str = "image", engine: str = "", engine_config: Any = None) -> int:
     from .pipelines import PipelineError, probe_pipeline
 
     try:
-        result = probe_pipeline(pipeline, kind, engine)
+        result = probe_pipeline(pipeline, kind, engine, engine_config)
     except PipelineError as exc:
         if exc.__cause__ is not None:  # the full story, for `docker compose logs`
             log.error("capability check failed: %s", exc.message, exc_info=exc.__cause__)
@@ -487,9 +555,10 @@ def read_commands(lines: Iterable[str], commands: "queue.Queue[Optional[dict[str
 
 def main(argv: Optional[list[str]] = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m studio.worker")
-    parser.add_argument("--kind", choices=["image", "music", "speech"], default="image", help="which model this worker holds")
-    parser.add_argument("--engine", default="", help="speech workers only: which speech engine (DESIGN.md §38.3)")
-    parser.add_argument("--variant", default="", help="speech workers only: which variant of the engine; empty = its preset variant")
+    parser.add_argument("--kind", choices=["image", "music", "speech", "video"], default="image", help="which model this worker holds")
+    parser.add_argument("--engine", default="", help="speech and video workers only: which engine (DESIGN.md §38.3, §46.6)")
+    parser.add_argument("--variant", default="", help="speech and video workers only: which variant of the engine; empty = its preset variant")
+    parser.add_argument("--engine-config", default="{}", help="video workers only: what the server knows of the environment the engine runs in, as JSON (Settings.video_engine_config)")
     parser.add_argument("--pipeline", choices=["fake", "real"], required=True)
     parser.add_argument("--data-dir", required=True)
     parser.add_argument("--model", required=True)
@@ -507,14 +576,18 @@ def main(argv: Optional[list[str]] = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s worker %(levelname)s %(message)s", stream=sys.stderr)
     emit = Emitter(protocol)
 
+    try:
+        engine_config = json.loads(args.engine_config)
+    except ValueError:
+        engine_config = {}  # a config that is not JSON is the same as none: the engine then says what it lacks
     if args.probe:
-        return run_probe(args.pipeline, emit, args.kind, args.engine)
+        return run_probe(args.pipeline, emit, args.kind, args.engine, engine_config)
 
     from .pipelines import make_pipeline
 
     pipeline = make_pipeline(args.pipeline, model=args.model, cpu_offload=args.cpu_offload,
                              hub_mode=args.hub_mode, fake_step_delay_ms=args.fake_step_delay_ms, kind=args.kind,
-                             engine=args.engine, variant=args.variant)
+                             engine=args.engine, variant=args.variant, engine_config=engine_config)
     worker = Worker(pipeline, Path(args.data_dir), emit, kind=args.kind)
     emit("hello", pid=os.getpid(), pipeline=args.pipeline, kind=args.kind, engine=args.engine or None, protocol=PROTOCOL_VERSION)
 

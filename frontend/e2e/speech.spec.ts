@@ -65,10 +65,10 @@ test.beforeEach(async ({ page }) => {
 });
 
 // ------------------------------------------------------------------ the tab, and a reading made and played
-test("the Speech tab is the fifth and last, is remembered, and has the three ways of giving it a text", async ({ page }) => {
+test("the Speech tab is the fifth (the Video tab, new in 1.27, is the sixth), is remembered, and has the three ways of giving it a text", async ({ page }) => {
   await page.goto("/");
   const tabs = page.getByRole("tablist").getByRole("tab");
-  await expect(tabs).toHaveText(["Images", "Music", "Vector", "Prompt builder", "Speech"]);
+  await expect(tabs).toHaveText(["Images", "Music", "Vector", "Prompt builder", "Speech", "Video"]);
   await speechTab(page).click();
   await expect(page.getByRole("radiogroup", { name: "Where the text comes from" })).toBeVisible();
   await page.reload();

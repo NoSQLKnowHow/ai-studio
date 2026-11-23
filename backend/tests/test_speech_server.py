@@ -152,7 +152,7 @@ def test_a_load_that_names_no_real_engine_or_variant_is_refused_in_words(client,
 
 def test_a_body_with_a_field_the_server_does_not_know_is_still_refused(client):
     assert client.post("/api/model/load", json={"model": "speech", "engine": "fake", "bogus": 1}).status_code == 422
-    assert client.post("/api/model/load", json={"model": "video"}).status_code == 422
+    assert client.post("/api/model/load", json={"model": "film"}).status_code == 422  # not a model (1.27 made "video" one)
 
 
 # ---------------------------------------------------------------- memory (criterion 278)

@@ -93,7 +93,7 @@ def clean_tags(raw: Sequence[Any]) -> list[str]:
 
 def index_fields(mode: str, prompt: str, lyrics: Optional[str], options_json: Optional[str]) -> tuple[str, str]:
     """What a run puts in the word index besides its notes and tags: (its `prompt`, its `extra`). `extra` is a music run's lyrics (they are NOT in the prompt column) and a reading's source
-    name (a file's name, or the web address and its host) from its options; a picture or a Vector run has none. Not indexed, on purpose (§45.4 rule 1): a negative prompt, the settings,
+    name (a file's name, or the web address and its host) from its options, and a clip's "what you hear" text; a picture or a Vector run has none. Not indexed, on purpose (§45.4 rule 1): a negative prompt, the settings,
     and the words a Vector run's recipe adds."""
     extra: list[str] = [lyrics] if lyrics else []
     if mode == "speech" and options_json:
@@ -103,6 +103,15 @@ def index_fields(mode: str, prompt: str, lyrics: Optional[str], options_json: Op
             source = None
         if isinstance(source, dict):
             extra.extend(source[key] for key in ("name", "host", "url") if isinstance(source.get(key), str))
+    # a clip's "what you hear" text is its extra words (DESIGN.md §46.9): the prompt is what happens, and the sound text is as much a thing a person looks a clip up by. Nothing else of a
+    # clip's settings is indexed (§45.4 rule 1).
+    if mode == "video" and options_json:
+        try:
+            sound = json.loads(options_json).get("sound")
+        except (ValueError, AttributeError):
+            sound = None
+        if isinstance(sound, str) and sound:
+            extra.append(sound)
     return prompt, " ".join(extra)
 
 
@@ -124,7 +133,7 @@ def parse_size(text: Optional[str]) -> Optional[tuple[int, int]]:
 # The words of the plain match, used where this SQLite has no FTS5 (DESIGN.md §45.7): everything the index would hold, in one lower-cased text. A reading's options stand in for its
 # source name (they hold it among a few other words), so the plain match finds more than the index would; that is the price of not having one.
 PLAIN_HAYSTACK = (
-    "lower(runs.prompt || ' ' || COALESCE(runs.lyrics, '') || ' ' || CASE WHEN runs.mode = 'speech' THEN runs.options_json ELSE '' END || ' ' || "
+    "lower(runs.prompt || ' ' || COALESCE(runs.lyrics, '') || ' ' || CASE WHEN runs.mode IN ('speech', 'video') THEN runs.options_json ELSE '' END || ' ' || "
     "COALESCE((SELECT n.notes FROM run_notes n WHERE n.run_id = runs.id), '') || ' ' || "
     "COALESCE((SELECT group_concat(t.tag, ' ') FROM run_tags t WHERE t.run_id = runs.id), ''))"
 )

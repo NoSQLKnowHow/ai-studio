@@ -33,6 +33,9 @@ from .projects import normalize_name
 from .runspec import ResolvedRun, RunRequestError
 from .speech import registry as speech_registry
 from .speech.service import ReadingRefused, ReadingSpec, SpeechService
+from .video import VIDEO, registry as video_registry
+from .video.job import CLIP_NAME
+from .video.service import VideoRefused, VideoService
 from .pipelines.base import PipelineError
 from .serialize import format_ts, parse_ts, purge_time, run_payload, utcnow
 from .storage import Storage, StorageError
@@ -41,7 +44,7 @@ from .worker_client import WorkerClient, WorkerGone, worker_env
 
 log = logging.getLogger("studio.jobs")
 
-RUN_EVENTS = frozenset({"run_started", "progress", "image_done", "track_done", "piece_done", "run_finished", "run_failed", "run_canceled"})
+RUN_EVENTS = frozenset({"run_started", "progress", "image_done", "track_done", "piece_done", "video_done", "run_finished", "run_failed", "run_canceled"})
 FAKE_MODEL_ID = "fake-pipeline"
 FAKE_MUSIC_MODEL_ID = "fake-music"
 KINDS = ("image", "music")  # the two fixed models; only one model is ever loaded (DESIGN.md §26.4)
@@ -49,13 +52,13 @@ SPEECH = "speech"  # the third kind (DESIGN.md §38.3): one speech engine in one
 
 
 def model_key(kind: str, engine: str = "", variant: str = "") -> str:
-    """What identifies the worker that holds a model: "image", "music", or "speech:<engine>:<variant>". Two speech workers are different models
-    (a different engine, or a different checkpoint of one engine), so changing from one to the other stops the loaded one first."""
-    return f"{SPEECH}:{engine}:{variant}" if kind == SPEECH else kind
+    """What identifies the worker that holds a model: "image", "music", "speech:<engine>:<variant>" or "video:<engine>:<variant>". Two speech workers are different models
+    (a different engine, or a different checkpoint of one engine), so changing from one to the other stops the loaded one first; so does a video clip's quality (DESIGN.md §46.6)."""
+    return f"{kind}:{engine}:{variant}" if kind in (SPEECH, VIDEO) else kind
 
 
 def key_kind(key: Optional[str]) -> Optional[str]:
-    """The kind ("image", "music" or "speech") of a model key."""
+    """The kind ("image", "music", "speech" or "video") of a model key."""
     return None if key is None else key.split(":", 1)[0]
 SHUTDOWN_MESSAGE = "Interrupted because the server was stopped."
 PROBE_TIMEOUT_SECONDS = 300  # importing torch + diffusers can be slow on a cold start
@@ -170,6 +173,7 @@ class JobManager:
         self._enlarge_waiting: list[str] = []  # image ids whose enlargement is waiting for its turn, oldest first
         self.upscaler = make_upscaler(settings)
         self.speech = SpeechService(settings, db, storage)  # what a reading means (DESIGN.md §38.6); this class owns the queue and the worker it runs on
+        self.video = VideoService(settings, db, storage)  # what a clip means (DESIGN.md §46); this class owns the queue and the worker it runs on
         self._worker_state: dict[str, Optional[str]] = {"state": "unloaded", "detail": None, "hint": None}
         self._load_progress: Optional[dict[str, Any]] = None  # the last report of the worker that is loading: how much of the model is in the cache, how long it has taken (DESIGN.md section 39)
         self._load_after: Optional[str] = None  # the model key that was unloaded to make room for the one that is loading, for the page to say so
@@ -181,6 +185,7 @@ class JobManager:
         self._probe: dict[str, Any] = {"state": "pending"}
         self._music_probe: dict[str, Any] = {"state": "pending"}
         self._speech_probes: dict[str, dict[str, Any]] = {}  # engine id -> the result of its start-up check (DESIGN.md §38.3)
+        self._video_probes: dict[str, dict[str, Any]] = {}  # video engine id -> the result of its start-up check (DESIGN.md §46.6)
         self._unload_at: Optional[float] = None
         # Starting and stopping the worker process happen one at a time: a run starting it, a Load, an Unload and the
         # idle timeout. Without this a click could meet a worker that is half stopped (DESIGN.md §25.3).
@@ -231,12 +236,12 @@ class JobManager:
         return self.model_id_for("image")
 
     def _make_client(self, key: str) -> WorkerClient:
-        """A worker client for a speech model key ("speech:<engine>:<variant>"), not yet remembered."""
-        _kind, engine, variant = key.split(":", 2)
-        return WorkerClient(self.settings, self._on_worker_event, SPEECH, engine, variant)
+        """A worker client for a speech or video model key ("speech:<engine>:<variant>", "video:<engine>:<variant>"), not yet remembered."""
+        kind, engine, variant = key.split(":", 2)
+        return WorkerClient(self.settings, self._on_worker_event, kind, engine, variant)
 
     def _client_for(self, key: str) -> WorkerClient:
-        """The worker client for a model key; a speech engine's client is made, and remembered, the first time a worker is wanted for it."""
+        """The worker client for a model key; a speech or video engine's client is made, and remembered, the first time a worker is wanted for it."""
         client = self._clients.get(key)
         if client is None:
             client = self._clients[key] = self._make_client(key)
@@ -246,6 +251,9 @@ class JobManager:
         if key_kind(kind) == SPEECH:  # a model key "speech:<engine>:<variant>": the engine's model as the person set it, or its own
             engine = kind.split(":")[1]
             return self.settings.speech_model_for(engine) or speech_registry.info(engine).model_id
+        if key_kind(kind) == VIDEO:  # "video:<engine>:<variant>": what the Model filter tells Draft from Final by (DESIGN.md §46.16 item 23)
+            _kind, engine, variant = kind.split(":", 2)
+            return f"{video_registry.info(engine).model_id} · {variant}"
         if kind == "music":
             return FAKE_MUSIC_MODEL_ID if self.settings.pipeline == "fake" else self.settings.music_model
         return FAKE_MODEL_ID if self.settings.pipeline == "fake" else self.settings.model
@@ -257,9 +265,9 @@ class JobManager:
         return {
             **self._worker_state,
             "pipeline": self.settings.pipeline,
-            "model": key_kind(self._model),  # "image", "music" or "speech"
-            "engine": self._model.split(":")[1] if key_kind(self._model) == SPEECH else None,  # which speech engine and variant (DESIGN.md §38.3)
-            "variant": self._model.split(":")[2] if key_kind(self._model) == SPEECH else None,
+            "model": key_kind(self._model),  # "image", "music", "speech" or "video"
+            "engine": self._model.split(":")[1] if key_kind(self._model) in (SPEECH, VIDEO) else None,  # which speech or video engine and variant (DESIGN.md §38.3, §46.6)
+            "variant": self._model.split(":")[2] if key_kind(self._model) in (SPEECH, VIDEO) else None,
             "pid": self._worker.pid,
             "unload_at": unload_at,
             "idle_timeout_min": self.settings.idle_timeout_min,
@@ -289,7 +297,7 @@ class JobManager:
     def memory_status(self) -> dict[str, Any]:
         mem = sysinfo.memory() or {}
         return {**mem, "min_free_gb": self.settings.min_free_gb, "music_min_free_gb": self.settings.music_min_free_gb,
-                "speech_min_free_gb": self.settings.speech_min_free_gb,
+                "speech_min_free_gb": self.settings.speech_min_free_gb, "video_min_free_gb": self._video_needed_gb(self.video.engine_id()),
                 "worker_rss_gb": sysinfo.process_rss_gb(self._worker.pid)}
 
     def music_status(self) -> dict[str, Any]:
@@ -330,6 +338,15 @@ class JobManager:
         return {"available": usable, "reason": reason, "hint": None if usable else "Each engine's own reason is below.", "engines": engines,
                 "audiobook": self.speech.audiobooks.tools().as_dict()}
 
+    def video_status(self) -> dict[str, Any]:
+        """Whether the Video tab can work here, and everything the page needs to describe it (DESIGN.md §46.10): `capabilities.video`. The engine's own start-up check decides
+        whether a clip can be made; the licence the person has acknowledged and the free memory right now are told beside it, since the page answers them differently (the licence
+        panel, a line under the form)."""
+        engine = self.video.engine_id()
+        probe = self._video_probes.get(engine) or {"state": "checking"}
+        short = self._memory_shortfall(model_key(VIDEO, engine, self.video.info().default_variant)) if probe.get("state") == "done" else None
+        return self.video.status(probe, short)
+
     def vector_status(self) -> dict[str, Any]:
         """Whether the Vector tab can work here (DESIGN.md §31.12.7): `capabilities.vector`, as `music_status` is for music. It needs both halves: the
         libraries of the clean-up must import (`vector.available`), and the image pipeline must be able to draw (its start-up check passed). The
@@ -347,7 +364,8 @@ class JobManager:
 
     def modes(self) -> list[str]:
         return ["generate", *(["edit"] if self.supports().get("edit") else []), *(["music"] if self.music_status()["available"] else []),
-                *(["vector"] if self.vector_status()["available"] else []), *(["speech"] if self.speech_status()["available"] else [])]
+                *(["vector"] if self.vector_status()["available"] else []), *(["speech"] if self.speech_status()["available"] else []),
+                *(["video"] if self.video_status()["available"] else [])]
 
     def supports(self) -> dict[str, bool]:
         found = self._supports_found()
@@ -371,7 +389,7 @@ class JobManager:
 
     # What the Queue panel says of a run, by its `mode`: which model it needs is what a person reordering wants to see (DESIGN.md section 40.4). A drawing is made with the
     # image model but is called a drawing, as its tab is.
-    _QUEUE_KINDS = {"generate": "image", "edit": "image", "music": "music", "vector": "vector", "speech": "speech"}
+    _QUEUE_KINDS = {"generate": "image", "edit": "image", "music": "music", "vector": "vector", "speech": "speech", "video": "video"}
 
     def _queue_item(self, row: sqlite3.Row, position: Optional[int]) -> dict[str, Any]:
         """One line of the Queue panel: the run's id, its `kind` (image, music, vector, speech, or voice for a sample or a new voice, which no card shows), a `title` of at
@@ -419,11 +437,14 @@ class JobManager:
         variation_counts = self.db.variation_counts_for_runs(ids)  # and how many variations each has
         readings = self.speech.readings(rows)  # a Speech run's parts, and how far each has got (§38.9)
         tags, notes = self.db.tags_for_runs(ids), self.db.notes_for_runs(ids)  # the person's own words about each run (§45.7)
+        clips = self.video.store.videos_for_runs([r["id"] for r in rows if r["mode"] == VIDEO])  # a clip's file facts and its segments (§46.10)
+        segments = self.video.store.segments_for_runs(list(clips))
         return [
             run_payload(r, images[r["id"]], self._progress.get(r["id"]), positions.get(r["id"]),
                         r["id"] in self._cancel_requested, self.expires_at(r), inputs[r["id"]], tracks[r["id"]], four_k, self.purge_at(r),
                         binned_images[r["id"]], binned_tracks[r["id"]], self.settings.bin_days, vectors[r["id"]], binned_vectors[r["id"]], prompt_refs.get(r["id"]),
-                        readings.get(r["id"]), variation_refs.get(r["id"]), variation_counts.get(r["id"], 0), tags[r["id"]], notes.get(r["id"], ""))
+                        readings.get(r["id"]), variation_refs.get(r["id"]), variation_counts.get(r["id"], 0), tags[r["id"]], notes.get(r["id"], ""),
+                        clips.get(r["id"]), segments.get(r["id"]))
             for r in rows
         ]
 
@@ -471,11 +492,12 @@ class JobManager:
         claims: list[str] = []
         filed_in, keep = self._check_prompt_ref(run)
         family_id, variation_json = self._check_variation(run)
-        if run.mode == "edit":
+        if run.mode == "edit" or (run.mode == "video" and run.inputs):  # an edit's pictures, or a clip's start picture: copied into a folder the run owns
             sources, problems = inputs_mod.resolve_refs(self.db, self.storage, list(run.inputs))
             if problems:
                 raise RunRequestError(problems)
-            width, height = self._shape_for(run, sources)
+            if run.mode == "edit":
+                width, height = self._shape_for(run, sources)
             try:
                 owned = await asyncio.to_thread(inputs_mod.copy_inputs, self.storage, run_id, sources)
             except inputs_mod.InputFileMissing as gone:
@@ -499,7 +521,7 @@ class JobManager:
             "cfg_scale": run.cfg_scale,
             "seed": run.seed,
             "num_images": run.num_images,
-            "model_id": self.model_id_for("music" if run.mode == "music" else "image"),
+            "model_id": self.model_id_for(model_key(VIDEO, run.video.engine, run.video.variant) if run.video else "music" if run.mode == "music" else "image"),
             "options_json": json.dumps(run.options_snapshot()),
             "lyrics": run.lyrics,
         }
@@ -540,6 +562,13 @@ class JobManager:
         self._publish_queue()
         self._wakeup.set()
         return payload
+
+    def check_video_request(self, run: ResolvedRun) -> None:
+        """What is checked before a clip is queued (DESIGN.md §46.10): the licence has been acknowledged and the video program can run here (409), and the disk has room for the clip
+        (507). Raises `VideoRefused`. Memory is not here: it is the run's to fail (§46.8), when its turn comes and the other models have made room."""
+        assert run.video is not None
+        self.video.check_ready(self._video_probes.get(run.video.engine) or {"state": "checking"})
+        self.video.check_disk(run.video.width, run.video.height, run.video.seconds)
 
     async def submit_reading(self, spec: ReadingSpec) -> dict[str, Any]:
         """Queue a reading (DESIGN.md §38.6 items 2 and 3): the request is checked and cut into pieces, and the reading, its parts and its pieces are stored
@@ -1155,6 +1184,12 @@ class JobManager:
                 async with self._lifecycle:  # not while an Unload or the idle timeout is stopping it
                     try:
                         started_worker = await self._prepare_worker(self._kind_of(row))
+                        if row["mode"] == VIDEO and not started_worker:
+                            # The video worker holds nothing: the program a clip runs takes the memory, and takes it for every clip. So the check that `_prepare_worker` makes for a
+                            # worker it has just started is made here for one that is already there (the other models have been stopped by now, to make room).
+                            shortfall = self._memory_shortfall(self._kind_of(row))
+                            if shortfall:
+                                raise _MemoryShortfall(shortfall)
                     except _MemoryShortfall as short:
                         self._finish(run_id, "failed", str(short), self._memory_hint())
                         return
@@ -1168,8 +1203,10 @@ class JobManager:
                         self._set_worker_state("unloaded")
                     self._finish(run_id, "canceled")
                     return
+                if row["mode"] == VIDEO:  # the start picture, made the clip's own size, goes beside the clip (a picture can be large: not on the event loop)
+                    await asyncio.to_thread(self.video.prepare_start, row)
                 await self._worker.send({"cmd": "run", "job": self._job_for(row)})
-            except ValueError as exc:  # a job that cannot be made: a reading whose voice was deleted since it began
+            except ValueError as exc:  # a job that cannot be made: a reading whose voice was deleted since it began, a start picture that is gone
                 self._finish(run_id, "failed", str(exc))
                 self._set_worker_state("ready" if self._worker.alive() else "unloaded")
                 return
@@ -1219,6 +1256,13 @@ class JobManager:
                 except Exception as exc:
                     log.exception("could not store track %s of run %s", event.get("idx"), run_id)
                     storage_error = storage_error or f"A track could not be stored: {exc}"
+            elif kind == "video_done":
+                try:
+                    await asyncio.to_thread(self.video.accept_clip, row, event)
+                    self._publish_run(run_id)
+                except Exception as exc:  # a file that is not the clip that was asked for (MediaError, in words), a disk that is full, a path outside the folder
+                    log.exception("could not take in the clip of run %s", run_id)
+                    storage_error = storage_error or f"The clip could not be finished: {exc}"
             elif kind == "piece_done" and speech_run and not self.speech.is_reading(row):  # a sample, or a candidate of a voice design (DESIGN.md §38.4)
                 try:
                     await asyncio.to_thread(self.speech.voices.accept_file, row, event)
@@ -1249,6 +1293,8 @@ class JobManager:
                     return
                 else:
                     self._finish(run_id, "done")
+                    if row["mode"] == VIDEO:  # a clip that was made is one more measured time: every open page estimates the next clip from it (DESIGN.md §46.8)
+                        self.publish_capabilities()
                 self._set_worker_state("ready")
                 return
             elif kind == "run_canceled":
@@ -1459,10 +1505,10 @@ class JobManager:
     # ------------------------------------------------------------ load and unload on request (DESIGN.md §25)
     @staticmethod
     def _kind_of(row: sqlite3.Row) -> str:
-        """The model key of the worker a run needs (`model_key`). A speech run says which engine and variant in its options (DESIGN.md §38.6)."""
-        if row["mode"] == SPEECH:
+        """The model key of the worker a run needs (`model_key`). A speech or video run says which engine and variant in its options (DESIGN.md §38.6, §46.6)."""
+        if row["mode"] in (SPEECH, VIDEO):  # a clip says which engine and which quality's checkpoint in its options (DESIGN.md §46.6)
             options = json.loads(row["options_json"])
-            return model_key(SPEECH, options["engine"], options["variant"])
+            return model_key(row["mode"], options["engine"], options["variant"])
         return "music" if row["mode"] == "music" else "image"
 
     async def _prepare_worker(self, kind: str) -> bool:
@@ -1493,11 +1539,13 @@ class JobManager:
         (it is loading or loaded already, or a run is using a model). Loading one model unloads the other first.
         For `kind` "speech" the engine (and, if it has several, the variant) must be named; the variant defaults to the one that speaks the preset
         voices (DESIGN.md §38.3). Raises ModelRefused."""
-        if kind not in (*KINDS, SPEECH):
-            raise ModelRefused(422, "unknown_model", f"There is no {kind!r} model; use one of: {', '.join((*KINDS, SPEECH))}.")
+        if kind not in (*KINDS, SPEECH, VIDEO):
+            raise ModelRefused(422, "unknown_model", f"There is no {kind!r} model; use one of: {', '.join((*KINDS, SPEECH, VIDEO))}.")
         key = kind
         if kind == SPEECH:
             key = self._speech_key(engine, variant)
+        if kind == VIDEO:
+            key = self._video_key(engine, variant)
         if self.settings.idle_timeout_min <= 0:
             raise ModelRefused(409, "no_idle_time",
                                "The model unloads as soon as it is idle (STUDIO_IDLE_TIMEOUT_MIN=0), so loading it ahead of "
@@ -1527,6 +1575,23 @@ class JobManager:
         self._wakeup.set()  # the job loop is waiting without a worker (or with a timer): let it look again
         return True
 
+    def _video_key(self, engine: str = "", variant: str = "") -> str:
+        """The model key of the video engine in a quality's checkpoint, checked (DESIGN.md §46.10): the engine must be the one this pipeline offers and the variant one it has (both
+        default to the studio's own), and the licence must have been acknowledged: no model is loaded before that (criterion 447). Raises ModelRefused."""
+        engine = engine or self.video.engine_id()
+        if engine not in video_registry.engine_ids(self.settings.pipeline):
+            raise ModelRefused(422, "unknown_engine", f"There is no video engine {engine!r} on this server.")
+        try:
+            described = video_registry.info(engine)
+        except PipelineError as exc:
+            raise ModelRefused(409, "engine_unavailable", exc.message, exc.hint) from exc
+        variant = variant or described.default_variant
+        if variant not in described.variants:
+            raise ModelRefused(422, "unknown_variant", f"The {described.title} engine has no variant {variant!r}; it has: {', '.join(described.variants)}.")
+        if not self.video.licence()["accepted"]:
+            raise ModelRefused(409, "licence_not_accepted", "You need to acknowledge the video model's licence first.", "Open the Video tab, read the licence and tick the box.")
+        return model_key(VIDEO, engine, variant)
+
     def _speech_key(self, engine: str, variant: str = "") -> str:
         """The model key of a speech engine, checked: the engine must be one this setting offers and the variant one it has. Raises ModelRefused."""
         if engine not in speech_registry.engine_ids(self.settings.pipeline, self.settings.speech_engines):
@@ -1541,10 +1606,10 @@ class JobManager:
         return model_key(SPEECH, engine, variant)
 
     async def unload_model(self, kind: Optional[str] = None) -> bool:
-        """Unload the model now (only `kind`'s, if one is named; "speech" means whichever speech engine is loaded). True if a worker was stopped.
+        """Unload the model now (only `kind`'s, if one is named; "speech" or "video" means whichever engine of it is loaded). True if a worker was stopped.
         Raises ModelRefused while a run is running."""
-        if kind is not None and kind not in (*KINDS, SPEECH):
-            raise ModelRefused(422, "unknown_model", f"There is no {kind!r} model; use one of: {', '.join((*KINDS, SPEECH))}.")
+        if kind is not None and kind not in (*KINDS, SPEECH, VIDEO):
+            raise ModelRefused(422, "unknown_model", f"There is no {kind!r} model; use one of: {', '.join((*KINDS, SPEECH, VIDEO))}.")
         async with self._lifecycle:
             if self._current is not None:
                 raise ModelRefused(409, "busy", "The model is working on a run. Cancel it or wait for it to finish.")
@@ -1573,10 +1638,26 @@ class JobManager:
         except PipelineError:
             return None
 
+    def _video_needed_gb(self, engine_id: str) -> Optional[float]:
+        """The free memory a clip needs before it starts (DESIGN.md §46.8): the person's STUDIO_VIDEO_MIN_FREE_GB if set (0 turns the check off); else, for the real engine, the most
+        the machine's memory was seen to use for a clip (the engine's own `memory_gb`, measured on the Spark: 55.6 GiB for 30 seconds) plus 4 GB for the programs beside it; the fake engine
+        has no check unless the setting asks for one, so that a test never depends on how much memory the machine has."""
+        if self.settings.video_min_free_gb is not None:
+            return self.settings.video_min_free_gb or None
+        if self.settings.pipeline == "fake":
+            return None
+        try:
+            return video_registry.info(engine_id).memory_gb + 4.0
+        except (PipelineError, video_registry.UnknownEngine):  # an engine that is not known has no number: the load refuses it by name, not this check
+            return None
+
     def _memory_shortfall(self, kind: str = "image") -> Optional[str]:
         """Fail fast (decision #19) instead of starting a load that can't fit next to Hermes. `kind` is a model key."""
         what = key_kind(kind)
-        if what == SPEECH:
+        if what == VIDEO:
+            needed = self._video_needed_gb(kind.split(":")[1])
+            setting, label = "STUDIO_VIDEO_MIN_FREE_GB", "video "
+        elif what == SPEECH:
             engine_id = kind.split(":")[1]
             needed = self._speech_needed_gb(engine_id)
             setting, label = "STUDIO_SPEECH_MIN_FREE_GB", "speech "
@@ -1639,10 +1720,20 @@ class JobManager:
         # cannot even be imported is recorded without starting a process
         engines = speech_registry.engine_ids(self.settings.pipeline, self.settings.speech_engines)
         self._speech_probes = {engine_id: {"state": "checking"} for engine_id in engines}
+        video_engine = self.video.engine_id()  # the video engine's own start-up check, in a worker process of its own like the speech engines' (DESIGN.md §46.6)
+        self._video_probes = {video_engine: {"state": "checking"}}
         # whether ffmpeg can make the audiobook file (DESIGN.md §44.4) is looked at now, off the event loop, so that the first `capabilities` request finds it known
         await asyncio.to_thread(self.speech.audiobooks.tools)
-        result, music, *speech = await asyncio.gather(
-            self._probe_subprocess("image"), self._probe_subprocess("music"), *(self._probe_speech_engine(e) for e in engines))
+        await asyncio.to_thread(self.video.tools)  # and whether ffmpeg and ffprobe can be run for clips (DESIGN.md §46.8)
+        result, music, video, *speech = await asyncio.gather(
+            self._probe_subprocess("image"), self._probe_subprocess("music"), self._probe_video_engine(video_engine),
+            *(self._probe_speech_engine(e) for e in engines))
+        if video.get("ok"):
+            self._video_probes[video_engine] = {"state": "done", "device": video.get("device")}
+            log.info("video capability check passed")
+        else:
+            self._video_probes[video_engine] = {"state": "failed", "error": video.get("error") or {}}
+            log.warning("video engine %s: %s", video_engine, (video.get("error") or {}).get("message"))
         for engine_id, outcome in zip(engines, speech):
             if outcome.get("ok"):
                 self._speech_probes[engine_id] = {"state": "done", "device": outcome.get("device")}
@@ -1666,9 +1757,22 @@ class JobManager:
             error = music.get("error") or {}
             self._music_probe = {"state": "failed", "error": error}
             log.warning("music capability check failed: %s", error.get("message"))
-        self.bus.publish("capabilities.updated", {"supports": self.supports(), "modes": self.modes(), "music": self.music_status(),
-                                                  "vector": self.vector_status(), "speech": self.speech_status()})
+        self.publish_capabilities()
         self.bus.publish("worker.state", self.worker_status())
+
+    def publish_capabilities(self) -> None:
+        """Tell every open page that what the server can do changed (the start-up checks finished, or the video licence was acknowledged or withdrawn): each page asks again."""
+        self.bus.publish("capabilities.updated", {"supports": self.supports(), "modes": self.modes(), "music": self.music_status(),
+                                                  "vector": self.vector_status(), "speech": self.speech_status(), "video": self.video_status()})
+
+    async def _probe_video_engine(self, engine_id: str) -> dict[str, Any]:
+        """The video engine's start-up check (DESIGN.md §46.6), in a worker process of its own. For the real engine it looks at the files, the program and its environment, which
+        takes a while the first time (it imports PyTorch there); it loads nothing and makes no clip."""
+        try:
+            variant = video_registry.info(engine_id).default_variant
+        except PipelineError as exc:
+            return {"ok": False, "error": exc.as_dict()}
+        return await self._probe_subprocess(model_key(VIDEO, engine_id, variant))
 
     async def _probe_speech_engine(self, engine_id: str) -> dict[str, Any]:
         """One speech engine's start-up check, in a worker process of its own with its own libraries (DESIGN.md §38.3). An engine whose module cannot be
@@ -1752,6 +1856,14 @@ class JobManager:
             if job is None:
                 raise ValueError("There is nothing left to make in this reading.")
             return job
+        if row["mode"] == VIDEO:  # one clip (DESIGN.md §46.6): the engine writes engine-out.mp4 in the run's video folder, and the picture it starts from (made its size) is beside it
+            options = json.loads(row["options_json"])
+            start = options.get("start")
+            return {
+                "run_id": row["id"], "engine": options["engine"], "variant": options["variant"], "prompt": row["effective_prompt"], "width": row["width"], "height": row["height"],
+                "num_frames": options["frames"], "fps": options["fps"], "seed": row["seed"], "out": f"video/{row['id']}/{CLIP_NAME}",
+                "images": [{"path": self.storage.rel(self.storage.video_dir(row["id"]) / "start.png"), "frame": start["frame"], "strength": start["strength"]}] if start else [],
+            }
         if row["mode"] == "music":
             return {
                 "run_id": row["id"],

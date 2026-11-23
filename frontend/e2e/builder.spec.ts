@@ -54,7 +54,7 @@ async function savePrompt(page: Page, title: string) {
 
 test("the tab is after Vector, is remembered, and says the builder is ready (criteria 221, 222)", async ({ page }) => {
   const names = await page.getByRole("tab").allTextContents();
-  expect(names.map((n) => n.replace(/\s+/g, " ").trim().replace(/ ?●$/, ""))).toEqual(["Images", "Music", "Vector", "Prompt builder", "Speech"]);
+  expect(names.map((n) => n.replace(/\s+/g, " ").trim().replace(/ ?●$/, ""))).toEqual(["Images", "Music", "Vector", "Prompt builder", "Speech", "Video"]);
   await expect(page.getByRole("tabpanel", { name: "Prompt builder" })).toBeVisible();
   await page.reload();
   await expect(builderTab(page)).toHaveAttribute("aria-selected", "true");

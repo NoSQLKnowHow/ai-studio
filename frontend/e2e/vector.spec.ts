@@ -101,7 +101,7 @@ test.beforeEach(async ({ page }) => {
 // ------------------------------------------------------------------ the tab, and the form's limits
 test("Vector is the third tab (before the Prompt builder): the arrow keys reach it, only its panel is shown, and the choice is remembered", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("tab")).toHaveText(["Images", "Music", "Vector", "Prompt builder", "Speech"]);
+  await expect(page.getByRole("tab")).toHaveText(["Images", "Music", "Vector", "Prompt builder", "Speech", "Video"]);
   await musicTab(page).click();
   await page.keyboard.press("ArrowRight");
   await expect(vectorTab(page)).toHaveAttribute("aria-selected", "true");
@@ -121,6 +121,8 @@ test("Vector is the third tab (before the Prompt builder): the arrow keys reach 
   await expect(page.getByRole("tab", { name: "Prompt builder" })).toHaveAttribute("aria-selected", "true"); // the fourth tab, since 1.19
   await page.keyboard.press("ArrowRight");
   await expect(page.getByRole("tab", { name: "Speech" })).toHaveAttribute("aria-selected", "true"); // the fifth, since 1.20
+  await page.keyboard.press("ArrowRight");
+  await expect(page.getByRole("tab", { name: "Video" })).toHaveAttribute("aria-selected", "true"); // the sixth, since 1.27
   await page.keyboard.press("ArrowRight");
   await expect(imagesTab(page)).toHaveAttribute("aria-selected", "true"); // wraps round
 });

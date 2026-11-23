@@ -87,9 +87,10 @@ describe("the shared table of cases", () => {
         + items(kind, project),
       deleted_items: items(kind, project),
     });
-    // the table counts every tab (Images, Music, Vector, and Speech since the page has its history: DESIGN.md §38.2), and the page must agree on each
+    // the table counts every tab (Images, Music, Vector, Speech since the page has its history: DESIGN.md §38.2, and Video since 1.27, which the table holds no clip of: §46.9), and the
+    // page must agree on each
     const kinds = Object.keys(cases.counts) as Kind[];
-    expect(kinds.sort()).toEqual(["image", "music", "speech", "vector"]);
+    expect(kinds.sort()).toEqual(["image", "music", "speech", "vector", "video"]);
     const all = (project: string | null = null) => Object.fromEntries(kinds.map((kind) => [kind, of(kind, project)]));
     expect(all()).toEqual(cases.counts);
     // ... and within each project, and within "no project": the numbers on the filter bar follow the project chosen (DESIGN.md §32.5)

@@ -9,7 +9,7 @@ import type { FourKTarget, ImageInfo, ImageRun, Run, UpscalerStatus } from "../t
 import { viewerItems, viewerKnown, viewerTitle } from "../viewer";
 import { FourKButton } from "./FourKButton";
 import { ViewerAnnotationsButton, ViewerAnnotationsPanel, panelEscape } from "./RunAnnotations";
-import { ChevronLeft, ChevronRight, CloseIcon, CompareIcon, DownloadIcon, EditIcon, EnlargeIcon, MoreLikeThisIcon, TrashIcon } from "./icons";
+import { AnimateIcon, ChevronLeft, ChevronRight, CloseIcon, CompareIcon, DownloadIcon, EditIcon, EnlargeIcon, MoreLikeThisIcon, TrashIcon } from "./icons";
 
 /** What the viewer says about a request made from it. The page behind a modal, toasts included, is hidden from
  *  screen readers, so the answer is shown inside the viewer instead (DESIGN.md §24.2). */
@@ -18,11 +18,12 @@ export interface ViewerNotice {
   text: string;
 }
 
-export function Lightbox({ run, index, notice, canEdit, readOnly, making4k, enlarging, enlargeWaiting, upscaler, onIndex, onRegenerateLarger, onMake4K, onEnlarge, onEditThis, onDeletePicture, onClose, onMoreLikeThis, inCompare, replaceOffered, onToggleCompare, onReplaceCompare }: {
+export function Lightbox({ run, index, notice, canEdit, canAnimate, readOnly, making4k, enlarging, enlargeWaiting, upscaler, onIndex, onRegenerateLarger, onMake4K, onEnlarge, onEditThis, onAnimateThis, onDeletePicture, onClose, onMoreLikeThis, inCompare, replaceOffered, onToggleCompare, onReplaceCompare }: {
   run: ImageRun | null;
   index: number;
   notice: ViewerNotice | null;
   canEdit: boolean; // the studio can edit, so "Edit this" is offered
+  canAnimate?: boolean; // the Video tab can work, so "Animate this" is offered (DESIGN.md §46.11)
   readOnly: boolean; // the run is in the bin: look at it and download it, but nothing that changes it (DESIGN.md §30.3)
   making4k: ReadonlySet<string>; // ids of the images whose 4K copy is being made (DESIGN.md §27)
   enlarging: ReadonlySet<string>; // ids of the images being enlarged with the upscaler model (DESIGN.md §28)
@@ -33,6 +34,7 @@ export function Lightbox({ run, index, notice, canEdit, readOnly, making4k, enla
   onMake4K: (image: FourKTarget) => void;
   onEnlarge: (image: FourKTarget) => void;
   onEditThis: (image: KnownImage) => boolean; // whether it was added (the tray may be full)
+  onAnimateThis?: (image: KnownImage, run: ImageRun) => boolean; // whether the Video tab took it (a picture still being made, or in the bin, is refused in words)
   onDeletePicture: (image: ImageInfo, position: number, of: number) => void; // Delete picture (DESIGN.md §33.1): which result of how many
   onClose: () => void;
   // More like this and A/B compare (DESIGN.md section 43). All optional, so a viewer shown without them has none of the buttons:
@@ -95,6 +97,13 @@ export function Lightbox({ run, index, notice, canEdit, readOnly, making4k, enla
                       }}
                       title="Add this picture to the images you are editing">
                       <EditIcon /> Edit this
+                    </button>
+                  )}
+                  {/* Animate this (§46.11): the picture on the screen becomes the first frame of a clip; only a result, of a finished run that is not in the bin */}
+                  {canAnimate && onAnimateThis && result && !readOnly && run.status === "done" && (
+                    <button type="button" className="button small" data-action="animate-this" onClick={() => { onAnimateThis(viewerKnown(run, item), run); }}
+                      title="Make a video clip that starts from this picture (the Video tab)">
+                      <AnimateIcon /> Animate this
                     </button>
                   )}
                   {/* More like this (§43.3): for the picture on the screen; only a finished run's results, and never one in the bin */}
@@ -190,6 +199,7 @@ export function ConfirmCancel({ run, onBack, onConfirm }: { run: Run | null; onB
   const music = run?.mode === "music";
   const vector = run?.mode === "vector"; // a Vector run's results are its versions (DESIGN.md §31.12.5)
   const speech = run?.mode === "speech"; // a reading's results are its parts, and every piece made is kept (§38.6)
+  const video = run?.mode === "video"; // a clip is made whole or not at all: Cancel ends the program that makes it (DESIGN.md §46.8)
   const thing = music ? "track" : vector ? "version" : speech ? "part" : "image";
   const done = (music ? run?.tracks.length : vector ? run?.vectors.length : speech ? run?.reading?.parts_done : run?.images.length) ?? 0;
   const piecesMade = speech ? run?.reading?.pieces_done ?? 0 : 0;
@@ -203,9 +213,11 @@ export function ConfirmCancel({ run, onBack, onConfirm }: { run: Run | null; onB
       <Dialog.Portal>
         <Dialog.Overlay className="overlay" />
         <Dialog.Content className="confirm" role="alertdialog" {...returnFocus}>
-          <Dialog.Title>{speech ? "Stop this reading?" : "Stop this run?"}</Dialog.Title>
+          <Dialog.Title>{speech ? "Stop this reading?" : video ? "Stop this clip?" : "Stop this run?"}</Dialog.Title>
           <Dialog.Description>
-            {speech
+            {video
+              ? "Nothing of a clip is kept: it is made whole or not at all. The video program is stopped, and the next clip starts it again from the beginning (loading its models takes about 45 seconds, as it does for every clip)."
+              : speech
               ? piecesMade
                 ? `Everything already made is kept${done ? ` (${done === 1 ? "1 part is" : `${done} parts are`} finished)` : ""}, and so is what was made of the part being worked on. Continue makes the rest.`
                 : "Nothing has been made yet, so nothing is kept. Continue makes it from the start."
@@ -215,7 +227,7 @@ export function ConfirmCancel({ run, onBack, onConfirm }: { run: Run | null; onB
           </Dialog.Description>
           <div className="confirm-actions">
             <Dialog.Close className="button">Keep going</Dialog.Close>
-            <button type="button" className="button danger-solid" onClick={confirm}>{music ? "Stop making music" : vector ? "Stop making the vector" : speech ? "Stop making the reading" : "Stop generating"}</button>
+            <button type="button" className="button danger-solid" onClick={confirm}>{music ? "Stop making music" : vector ? "Stop making the vector" : speech ? "Stop making the reading" : video ? "Stop making the clip" : "Stop generating"}</button>
           </div>
         </Dialog.Content>
       </Dialog.Portal>
@@ -230,6 +242,7 @@ export function ConfirmDelete({ run, binDays, projectName, onCancel, onConfirm }
   const music = run?.mode === "music";
   const vector = run?.mode === "vector";
   const speech = run?.mode === "speech"; // a reading has no pictures, tracks or versions: what goes is its audio (DESIGN.md §38.8)
+  const video = run?.mode === "video"; // a clip has one file, which goes with it (§46.9)
   const thing = music ? "track" : vector ? "version" : "image";
   const n = (music ? run?.tracks.length : vector ? run?.vectors.length : speech ? 0 : run?.images.length) ?? 0;
   // One dialog, three cases. A finished run, with a bin: Delete moves it to Deleted (nothing is lost yet). A run already in the bin:
@@ -238,7 +251,7 @@ export function ConfirmDelete({ run, binDays, projectName, onCancel, onConfirm }
   // it moves to the bin only if there is a bin, it is not already in it, and it has finished (a run still waiting made nothing worth keeping)
   const toBin = !!run && !inBin && binDays > 0 && run.status !== "queued" && run.status !== "running";
   // what "for good" means: the pictures or tracks are removed from the Spark, not just hidden
-  const gone = speech ? "Its audio is removed from the Spark." : n ? `Its ${n === 1 ? `${thing} is` : `${n} ${thing}s are`} removed from the Spark.` : "It is removed from the history.";
+  const gone = speech ? "Its audio is removed from the Spark." : video ? "Its clip is removed from the Spark." : n ? `Its ${n === 1 ? `${thing} is` : `${n} ${thing}s are`} removed from the Spark.` : "It is removed from the history.";
   // a run filed in a project: the project is named, and what happens to the run there is said (a run in the bin keeps its project, and Restore puts it back)
   const filed = !!run && run.project_id !== null;
   const project = projectName === null ? "a project" : `the project “${projectName}”`;
@@ -254,7 +267,7 @@ export function ConfirmDelete({ run, binDays, projectName, onCancel, onConfirm }
       <Dialog.Portal>
         <Dialog.Overlay className="overlay" />
         <Dialog.Content className="confirm" role="alertdialog" {...returnFocus}>
-          <Dialog.Title>{speech ? (inBin ? "Delete this reading for good?" : "Delete this reading?") : inBin ? "Delete this run for good?" : "Delete this run?"}</Dialog.Title>
+          <Dialog.Title>{speech ? (inBin ? "Delete this reading for good?" : "Delete this reading?") : video ? (inBin ? "Delete this clip for good?" : "Delete this clip?") : inBin ? "Delete this run for good?" : "Delete this run?"}</Dialog.Title>
           <Dialog.Description>
             {toBin && severalVersions
               ? `${filed ? `It is in ${project}. ` : ""}It has ${n} versions. All of them move to Deleted and stay there for ${binDays} ${binDays === 1 ? "day" : "days"}; ${filed ? "restoring the run puts it back in the project" : "you can restore the run from there"}. After that they are gone for good.`

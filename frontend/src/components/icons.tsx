@@ -69,3 +69,7 @@ export const LockIcon = () => <Icon><rect x="5" y="11" width="14" height="9" rx=
 export const SearchIcon = () => <Icon><circle cx="10.5" cy="10.5" r="6.5" /><path d="M15.5 15.5L21 21" /></Icon>;
 // a price tag: the icon of the tags and notes button on a card and in the viewer (§45.3)
 export const TagIcon = () => <Icon><path d="M3 12V4h8l10 10-8 8z" /><circle cx="7.5" cy="8.5" r="1.2" fill="currentColor" /></Icon>;
+// a clip: a film frame with a play triangle (the Video tab)
+export const VideoIcon = () => <Icon><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M10 9.5v5l4.5-2.5z" /></Icon>;
+// a picture with a spark: Animate this
+export const AnimateIcon = () => <Icon><rect x="3" y="4" width="14" height="12" rx="2" /><path d="M7 20h10M20 8v6M17 11h6" /></Icon>;

@@ -18,8 +18,8 @@ from typing import Any, Mapping, Optional
 
 from .runsearch import PLAIN_HAYSTACK, RUN_HEIGHT, RUN_WIDTH, match_string, parse_size, plain_pattern, search_terms
 
-# What the Images, Music, Vector and Speech tabs hold, as the runs table's `mode`: the page splits the history by tab and counts per tab (DESIGN.md §31.12.7).
-KINDS: dict[str, tuple[str, ...]] = {"image": ("generate", "edit"), "music": ("music",), "vector": ("vector",), "speech": ("speech",)}
+# What the Images, Music, Vector, Speech and Video tabs hold, as the runs table's `mode`: the page splits the history by tab and counts per tab (DESIGN.md §31.12.7).
+KINDS: dict[str, tuple[str, ...]] = {"image": ("generate", "edit"), "music": ("music",), "vector": ("vector",), "speech": ("speech",), "video": ("video",)}
 
 # The value of `RunFilter.project` that means "runs that are in no project" (DESIGN.md §32.4). A project's id is 32 hex digits, so this can
 # never be one.

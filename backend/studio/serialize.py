@@ -94,6 +94,22 @@ def track_payload(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
+def video_payload(row: sqlite3.Row) -> dict[str, Any]:
+    """A finished clip, with the keys of `run.video` in tests/video_contract.json (DESIGN.md §46.10). The numbers are what ffprobe found in the file. `url` is the MP4 (it answers `Range`, so
+    a player can seek and start before it has all arrived), `download_url` the same as an attachment, `poster_url` the first frame."""
+    base = f"/api/videos/{row['id']}"
+    return {
+        "id": row["id"], "url": base, "download_url": f"{base}?download=1", "poster_url": f"{base}/poster", "thumb_url": f"{base}/thumb" if row["thumb_path"] else None,
+        "width": row["width"], "height": row["height"], "fps": row["fps"], "frames": row["frames"], "seconds": row["seconds"], "seed": row["seed"],
+        "has_audio": bool(row["has_audio"]), "audio_channels": row["audio_channels"], "audio_rate": row["audio_rate"], "bytes": row["bytes"], "note": row["note"],
+    }
+
+
+def segment_payload(row: sqlite3.Row) -> dict[str, Any]:
+    """One segment of a clip: its place, how it stands, and how long it is (DESIGN.md §46.10). A clip made in one pass has one."""
+    return {"idx": row["idx"], "status": row["status"], "seconds": row["seconds"]}
+
+
 def variations_status(settings: Any, can_edit: bool) -> dict[str, Any]:
     """`capabilities.variations` (DESIGN.md §43.6): `{from_picture, reason}`. *More takes of the prompt* needs nothing and is not listed. *Variations of this picture* is an edit
     run, so it needs editing to be available here and the setting that says the Spark experiment of §43.9 has been looked at; where it is not on, `reason` is what the dialog
@@ -212,6 +228,8 @@ def run_payload(
     variation_count: int = 0,
     tags: Optional[list[str]] = None,
     notes: str = "",
+    video: Optional[sqlite3.Row] = None,
+    segments: Optional[list[sqlite3.Row]] = None,
 ) -> dict[str, Any]:
     error = None
     if row["error_message"]:
@@ -267,4 +285,9 @@ def run_payload(
         # byte: a page for one of those tabs never meets them, and the Speech page reads them only where `mode` says speech.
         payload["hidden"] = bool(row["hidden"])  # a short job behind a voice sample or a voice being designed (§38.4): queued like a run, not history
         payload["reading"] = reading  # the parts and how far each has got, and where the listener stopped; null for a hidden job
+    if row["mode"] == "video":
+        # Two keys only a clip has (DESIGN.md §46.10), hidden behind `mode` for the same reason as the Speech keys: the other tabs' payloads stay the contracts of 1.17 to 1.19 byte for
+        # byte. `video` is the finished clip (null until it exists), `segments` the pieces it is made of.
+        payload["video"] = video_payload(video) if video is not None else None
+        payload["segments"] = [segment_payload(segment) for segment in segments or []]
     return payload

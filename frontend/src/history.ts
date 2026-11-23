@@ -165,8 +165,10 @@ export function searchTokens(text: string | null, limit = SEARCH_WORDS): string[
   return found.slice(0, limit);
 }
 
-/** Where a reading's text came from, as its options record it: a file's name, or a web address and its host. A search finds these (§45.4 rule 1). */
+/** What a run is found by besides its prompt, from its options: a reading's source (a file's name, or a web address and its host), and a clip's "what you hear" text (DESIGN.md §46.9). A
+ *  search finds these (§45.4 rule 1). */
 function sourceWords(run: Pick<Run, "mode" | "options">): string {
+  if (run.mode === "video") return typeof (run.options as { sound?: unknown }).sound === "string" ? (run.options as { sound: string }).sound : "";
   if (run.mode !== "speech") return "";
   const source = (run.options as { source?: unknown }).source;
   if (typeof source !== "object" || source === null) return "";
@@ -345,6 +347,7 @@ export interface Counts {
   music: TabCounts;
   vector: TabCounts; // its `deleted_items` counts versions in the bin (DESIGN.md §35.4)
   speech: TabCounts; // readings: kept from the start (they never expire, §38.8), and with nothing of their own in the bin, so `deleted_items` is 0
+  video: TabCounts; // clips: one file for each run, so, as for readings, nothing of their own in the bin and `deleted_items` is 0 (DESIGN.md §46.9)
 }
 
 /** The tabs that keep a history, in the order the page shows them: the keys of `Counts`, and what a tab is called when the page asks the server about it. */

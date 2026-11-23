@@ -9,7 +9,8 @@ Fails (exit 1) when:
 - the music worker can't import the MiniMax-Music3 pipeline with its own copy of diffusers (STUDIO_MUSIC_LIBS),
 - the built web page is missing.
 Not fatal (a note): spandrel for Enlarge and vtracer + shapely for Vector cannot be imported or used, and each speech engine (Qwen3-TTS, Voxtral, Kokoro, Piper)
-and ffmpeg: an engine that cannot run is reported with its reason, and the Speech tab shows the same reason on its pill (DESIGN.md section 38.3).
+and ffmpeg: an engine that cannot run is reported with its reason, and the Speech tab shows the same reason on its pill (DESIGN.md section 38.3). The same for Video: one line says whether
+the LTX program's command is found and which Python and PyTorch it has, and how many of the model files are there (none are, in a build: they are mounted when the container runs).
 No GPU is needed: builds don't get one, so whether CUDA can see a GPU is reported, not required.
 """
 
@@ -95,6 +96,54 @@ def speech_notes() -> list[str]:
             notes.append(f"Speech: {engine_id}: can run ({answer['ok'].get('device', 'device not stated')})")
         else:
             notes.append(f"Speech: {engine_id}: not available here: {answer['no']}" + (f" ({answer['hint']})" if answer.get("hint") else ""))
+    return notes
+
+
+def video_notes() -> list[str]:
+    """The `Video:` lines (DESIGN.md section 46.6): what was measured working, whether this image can run the program the first way (the host's LTX-2 clone shared in, whose python is a link
+    to /usr/bin/python3) or the second (built in), with the same check the server makes at start-up (so that the line says what the Video tab will say). Nothing here can fail the build:
+    a program that is not built in, a Python that is too old, a PyTorch that is not a CUDA build, model files that are not mounted (a build has none of them, and no clone) are each
+    a note. A build has no GPU, so whether PyTorch sees one is reported and not required."""
+    notes: list[str] = []
+    try:
+        from studio.config import Settings
+        from studio.video.engine import EngineConfig
+        from studio.video.engines.ltx import IMAGE_TORCH, MEASURED_ON_THE_SPARK, inspect_environment, interpreter_command
+        from studio.video.engines.ltx_files import find_files
+
+        measured = MEASURED_ON_THE_SPARK
+        packages = measured["packages"]
+        notes.append(
+            f"Video: measured working on the Spark ({measured['date']}): LTX-2 commit {measured['ltx_commit'][:7]} (ltx-core, ltx-pipelines, ltx-trainer {packages['ltx-core']}), Python {measured['python']}, "
+            f"torch {packages['torch']} (CUDA {measured['cuda']}), transformers {packages['transformers']}, triton {packages['triton']}, natten {packages['natten']}")
+        notes.append(f"Video: this image's own PyTorch is {IMAGE_TORCH}, which the program cannot use: it runs in an environment of its own (STUDIO_VIDEO_LTX_DIR, shared from the host, or built in with VIDEO_LTX=1)")
+        # the first way depends on this: the clone's .venv/bin/python is a link to /usr/bin/python3, so the image must have the same Python there
+        system_python = "/usr/bin/python3"
+        if os.path.exists(system_python):
+            done = subprocess.run([system_python, "--version"], capture_output=True, text=True, timeout=30)
+            found = (done.stdout or done.stderr).strip().replace("Python ", "")
+            notes.append(f"Video: {system_python} is Python {found}" + (" (as measured: the host's environment can run here)" if found == measured["python"] else f" (the measured one is {measured['python']}; an environment whose python links here may not run)"))
+        else:
+            notes.append(f"Video: {system_python} is not in this image, so an environment shared from the host whose python links there cannot run here")
+
+        config = EngineConfig.from_dict(Settings.from_env().video_engine_config())
+        command = interpreter_command(config)
+        if not command:
+            notes.append("Video: no program is set up in this build (STUDIO_VIDEO_LTX_DIR is empty and the LTX environment is not built in: build with VIDEO_LTX=1, or share your clone with STUDIO_VIDEO_LTX_DIR); the Video tab will say so")
+            return notes
+        report = inspect_environment(command, cache_dir=config.cache_dir)
+        if report.problem:
+            notes.append(f"Video: not available here: {report.problem}" + (f" ({report.hint})" if report.hint else "") + f"; found: {report.summary()}")
+        else:
+            differences = report.differences()
+            notes.append(f"Video: the LTX program can be started: {report.summary()}" + (f"; differs from the measured one in: {'; '.join(differences)}" if differences else "; as measured"))
+        found_files, problems = find_files(config.models_path(), config.files)
+        if found_files is not None:
+            notes.append("Video: all five model files were found in " + str(config.models_dir))
+        else:
+            notes.append(f"Video: model files: {problems[0].message} ({len(problems)} of 5 not found; expected in a build, where nothing is mounted yet)")
+    except Exception as exc:  # noqa: BLE001 - only a note
+        notes.append(f"Video: could not find out whether the LTX program can run ({type(exc).__name__}: {exc})")
     return notes
 
 
@@ -193,6 +242,9 @@ def main() -> int:
 
     # Speech (DESIGN.md section 38.3). Every engine and ffmpeg are optional: what cannot run is a note, and the Speech tab says why on the engine's pill.
     notes.extend(speech_notes())
+
+    # Video (DESIGN.md section 46.6): the LTX program's own environment, built into the image or shared from the host. Only a note, whatever it finds.
+    notes.extend(video_notes())
 
     static = Path(os.environ.get("STUDIO_STATIC_DIR", "/app/static")) / "index.html"
     if not static.is_file():

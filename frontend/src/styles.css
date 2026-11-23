@@ -233,7 +233,7 @@ button, input, textarea, select { font: inherit; color: inherit; }
 .banner { background: var(--warning-soft); color: var(--warning); text-align: center; padding: 8px 16px; font-size: 14px; font-weight: 550; border-bottom: 1px solid var(--border); }
 
 /* ------------------------------------------------------------------ prompt card */
-.prompt-card, .music-form, .vector-form {
+.prompt-card, .music-form, .vector-form, .video-form, .video-licence {
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md); padding: 14px; display: grid; gap: 10px;
 }
@@ -1307,3 +1307,51 @@ button.badge-variation:disabled { cursor: default; }
 .tag-suggestions { display: grid; gap: 4px; justify-items: start; }
 .tag-chip.suggestion { border: 1px dashed var(--border-strong); background: var(--surface); cursor: pointer; font: inherit; font-size: 12px; color: var(--text); }
 .tag-chip.suggestion:hover:not(:disabled) { border-color: var(--accent); }
+
+/* ------------------------------------------------------------------ video (the sixth tab, DESIGN.md section 46.11)
+   The Video tab reuses the Music tab's frame (`music-form`, `music-title`, `music-settings`, `music-advanced`, `music-note`, `music-licence`, `music-unavailable`) and the run cards' parts; what
+   is new is the player, the start picture with its crop preview, the picker of pictures, the licence panel and the line above Make clip. Colours are the theme's tokens only, so both themes
+   are covered; nothing here is wider than its container, so the tab has no sideways scroll at 360 px. */
+.video-fieldset { border: 0; margin: 0; padding: 0; min-width: 0; display: grid; gap: 10px; }
+.video-fieldset:disabled { opacity: 0.55; } /* the form is switched off until the licence is acknowledged */
+.video-line { font-size: 14px; font-weight: 550; color: var(--text); background: var(--surface-2); border-radius: var(--radius-sm); padding: 8px 10px; overflow-wrap: anywhere; }
+
+/* the player: the clip's own shape (set inline as an aspect ratio), never wider than the card or taller than the screen */
+.video-frame { width: 100%; max-height: min(70vh, 640px); background: #000; border-radius: var(--radius-sm); overflow: hidden; display: grid; }
+.video-frame video { width: 100%; height: 100%; max-height: min(70vh, 640px); object-fit: contain; display: block; background: #000; }
+.video-frame.large { max-height: calc(100vh - 160px); margin: 0 auto; }
+.video-frame.large video { max-height: calc(100vh - 160px); }
+.video-sound { font-style: italic; }
+.video-card .run-meta { overflow-wrap: anywhere; }
+
+/* the licence panel */
+.video-licence h2 { font-size: 17px; font-weight: 650; }
+.video-licence-summary { margin: 0; padding: 8px 12px; border-left: 3px solid var(--border-strong); background: var(--surface-2); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; display: grid; gap: 4px; }
+.video-licence-summary p { margin: 0; }
+.video-licence .choice { align-items: flex-start; }
+.video-licence .choice input { margin-top: 2px; flex: none; }
+
+/* the start picture: the picture, with the part the clip does not use shaded */
+.video-picture { gap: 8px; }
+.video-picture-chosen { display: grid; gap: 8px; justify-items: start; min-width: 0; }
+.video-crop { position: relative; width: min(100%, 360px); overflow: hidden; border-radius: var(--radius-sm); background: var(--surface-3); }
+.video-crop img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.video-crop-keep { position: absolute; box-shadow: 0 0 0 100vmax rgb(0 0 0 / 55%); outline: 2px solid var(--accent); outline-offset: -2px; pointer-events: none; }
+.video-picture-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* the picker of pictures from the history */
+.video-picker { width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 48px); overflow-y: auto; }
+.video-picker-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.video-picker-item { display: block; width: 100%; aspect-ratio: 1; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; background: var(--surface-2); cursor: pointer; }
+.video-picker-item:hover { border-color: var(--accent); }
+.video-picker-item:focus-visible { outline: none; box-shadow: var(--focus); }
+.video-picker-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* the viewer of a clip: the Lightbox's frame, with the player and the words under it */
+.video-viewer-body { display: grid; gap: 10px; max-width: 1100px; margin: 0 auto; color: #f3f3f6; }
+.video-viewer-body .run-prompt, .video-viewer-body .run-meta, .video-viewer-body .run-note { color: #e0e0e8; overflow-wrap: anywhere; }
+
+@media (max-width: 520px) {
+  .video-picker-grid { grid-template-columns: repeat(auto-fill, minmax(80px, 1fr)); }
+  .video-picture-actions .button { flex: 1 1 140px; justify-content: center; }
+}

@@ -5,7 +5,7 @@ import type { FourKTarget, ImageRun, UpscalerStatus, WorkerState, WorkerStatus }
 import { FourKButton } from "./FourKButton";
 import { RefineButton, RunFrom } from "../promptLinks";
 import { RunAnnotations } from "./RunAnnotations";
-import { AlertIcon, CopyIcon, DownloadIcon, EditIcon, EnlargeIcon, FolderIcon, MoreLikeThisIcon, PinIcon, RestoreIcon, ReuseIcon, StopIcon, TrashIcon } from "./icons";
+import { AlertIcon, AnimateIcon, CopyIcon, DownloadIcon, EditIcon, EnlargeIcon, FolderIcon, MoreLikeThisIcon, PinIcon, RestoreIcon, ReuseIcon, StopIcon, TrashIcon } from "./icons";
 import { canMoreLikeThis, countChip, familyOf, sourceChip } from "../variations";
 import { ProjectMenu, projectOf, type ProjectControls } from "./ProjectMenu";
 import { loadView } from "../loadProgress";
@@ -29,6 +29,8 @@ interface Props {
   onMake4K: (image: FourKTarget) => void;
   onEnlarge: (image: FourKTarget) => void;
   onEditThis: () => void;
+  canAnimate?: boolean; // the Video tab can work, so "Animate this" is offered (DESIGN.md §46.11)
+  onAnimateThis?: () => void;
   onRetry: () => void;
   onCancel: () => void;
   onToggleKeep: () => void;
@@ -129,7 +131,7 @@ function Media({ run, offset, onOpenImage }: { run: ImageRun; offset: number; on
   );
 }
 
-export function RunCard({ run, now, workerState, worker, canEdit, making4k, enlarging, enlargeWaiting, transient, viewScope, projects, upscaler, onReuse, onRegenerateLarger, onMake4K, onEnlarge, onEditThis, onRetry, onCancel, onToggleKeep, onRestore, onDelete, onCopy, onOpenImage, onMoreLikeThis, onShowFamily }: Props) {
+export function RunCard({ run, now, workerState, worker, canEdit, making4k, enlarging, enlargeWaiting, transient, viewScope, projects, upscaler, onReuse, onRegenerateLarger, onMake4K, onEnlarge, onEditThis, canAnimate, onAnimateThis, onRetry, onCancel, onToggleKeep, onRestore, onDelete, onCopy, onOpenImage, onMoreLikeThis, onShowFamily }: Props) {
   const [expanded, setExpanded] = useState(false);
   // The two chips of a variation (§43.4): where it came from, and how many it has. Each opens the family, which is the first run and everything made from it.
   const fromChip = sourceChip(run);
@@ -295,6 +297,13 @@ export function RunCard({ run, now, workerState, worker, canEdit, making4k, enla
             <button type="button" className="button small ghost" data-action="edit-this" onClick={onEditThis}
               title="Add this picture to the images you are editing">
               <EditIcon /> Edit this
+            </button>
+          )}
+          {/* Animate this (DESIGN.md §46.11): the picture becomes the first frame of a clip on the Video tab; offered where that tab can work */}
+          {canAnimate && onAnimateThis && run.status === "done" && run.images.length === 1 && (
+            <button type="button" className="button small ghost" data-action="animate-this" onClick={onAnimateThis}
+              title="Make a video clip that starts from this picture (the Video tab)">
+              <AnimateIcon /> Animate this
             </button>
           )}
           <button type="button" className="button small ghost danger" data-action="delete" onClick={onDelete} disabled={run.status === "running"}

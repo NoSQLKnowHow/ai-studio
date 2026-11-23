@@ -30,6 +30,9 @@ from .builder.service import BuilderService
 from .builder.store import BuilderStore
 from .speech import speech_limits
 from .speech.routes import add_routes as add_speech_routes
+from .video import video_limits
+from .video.routes import add_routes as add_video_routes
+from .video.service import VideoRefused
 from .config import Settings
 from .db import Database
 from .events import OVERFLOW, EventBus, format_sse
@@ -97,8 +100,8 @@ class ModelChoice(BaseModel):
     means whichever model is loaded."""
 
     model_config = ConfigDict(extra="forbid", strict=True)
-    model: Literal["image", "music", "speech"]
-    engine: Optional[str] = None  # a speech model is one engine in one variant (DESIGN.md §38.3); the variant defaults to the one that speaks the presets
+    model: Literal["image", "music", "speech", "video"]
+    engine: Optional[str] = None  # a speech or video model is one engine in one variant (DESIGN.md §38.3, §46.6); the variant defaults to the one that speaks the presets, or the quality Draft
     variant: Optional[str] = None
 
 
@@ -305,6 +308,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
                 "builder": builder_limits(),
                 "annotations": {"tags_max": TAGS_MAX, "tag_chars": TAG_CHARS, "notes_chars": NOTES_CHARS, "search_chars": SEARCH_CHARS, "search_words": SEARCH_WORDS, "suggest_max": settings.tag_suggestions},  # §45.7
                 "speech": speech_limits(settings),
+                "video": video_limits(settings, jobs.video.info(), jobs.video.timings()),  # DESIGN.md §46.10
                 "music": {
                     "duration": {"min": P.MUSIC_DURATION_MIN, "max": settings.music_max_seconds, "default": P.MUSIC_DEFAULT_SECONDS},
                     "tracks": {"min": 1, "max": settings.music_max_tracks},
@@ -317,6 +321,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             "music": {**jobs.music_status(), "model": jobs.model_id_for("music")},
             "vector": jobs.vector_status(),  # the Vector tab (DESIGN.md §31.12.7): {available, reason, hint}, like `music`
             "speech": jobs.speech_status(),  # the Speech tab (DESIGN.md §38.9): {available, reason, hint, engines: [...]}
+            "video": jobs.video_status(),  # the Video tab (DESIGN.md §46.10): {available, state, reason, hint, engine, licence, qualities, chaining, tools, memory}
             "upscaler": jobs.upscaler_status(),  # Enlarge (DESIGN.md §28.3): whether it can run here, and if not why
             # More like this (DESIGN.md §43.6): "More takes" always works; "Variations of this picture" needs the editing pipeline and the setting that says the Spark
             # experiment has been looked at. `reason` is what the dialog says beside the greyed choice.
@@ -354,6 +359,8 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     async def create_run(body: RunCreate, request: Request) -> Any:
         try:
             resolved = resolve_run(body, settings)
+            if resolved.mode == "video":  # the licence, whether the video program can run, and the disk (409, 409, 507): before anything is queued
+                jobs_of(request).check_video_request(resolved)
             return await jobs_of(request).submit(resolved)  # an edit's inputs are checked here, against what is stored
         except RunRequestError as exc:
             return JSONResponse(status_code=422, content={"detail": exc.detail()})
@@ -361,6 +368,11 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
             return _error(429, str(exc), "queue_full")
         except InputStorageError as exc:
             return _error(507, str(exc), "storage_full")
+        except VideoRefused as exc:
+            content: dict[str, Any] = {"detail": exc.message, "code": exc.code}
+            if exc.hint:
+                content["hint"] = exc.hint
+            return JSONResponse(status_code=exc.status, content=content)
         except (PromptRefRefused, VariationRefused) as exc:  # the run it is made from (a saved prompt, or More like this of) is not there, or is in the bin
             return _error(exc.status, exc.message, exc.code)
 
@@ -415,7 +427,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         kept: Optional[bool] = Query(None, description="true: only kept runs; false: only runs that are not kept; absent: either"),
         deleted: Optional[bool] = Query(None, description="true: only the bin; false or absent: the history, without the bin"),
         project: Optional[str] = Query(None, pattern=PROJECT_PATTERN, description="a project's id: only its runs; 'none': only runs in no project; absent: any"),
-        kind: Optional[Literal["image", "music", "vector", "speech"]] = Query(None, description="only the runs of one tab (DESIGN.md §31.12.7); absent: every tab"),
+        kind: Optional[Literal["image", "music", "vector", "speech", "video"]] = Query(None, description="only the runs of one tab (DESIGN.md §31.12.7); absent: every tab"),
         prompt: Optional[str] = Query(None, pattern=PROJECT_PATTERN, description="a saved prompt's id: only the runs made from it (DESIGN.md §37.4)"),
         family: Optional[str] = Query(None, pattern=r"^[0-9a-f]{32}$", description="a run's id: that run and every variation made from it (DESIGN.md §43.4)"),
         q: Optional[str] = Query(None, max_length=SEARCH_CHARS, description=f"search: every word (at most {SEARCH_WORDS}) must be the start of a word in the run's words, notes or tags (DESIGN.md §45.4)"),
@@ -451,7 +463,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
         return request.app.state.db.run_counts(counted_within(project, **scope))
 
     @app.get("/api/runs/facets")
-    async def run_facets(request: Request, kind: Literal["image", "music", "vector", "speech"] = Query(..., description="the tab")) -> Any:
+    async def run_facets(request: Request, kind: Literal["image", "music", "vector", "speech", "video"] = Query(..., description="the tab")) -> Any:
         """What the Model and Size drop-downs offer for one tab: the models that made its runs and (Images only) the sizes, each with how many runs (DESIGN.md §45.7)."""
         return await asyncio.to_thread(request.app.state.db.run_facets, kind)
 
@@ -1069,6 +1081,7 @@ def create_app(settings: Optional[Settings] = None) -> FastAPI:
     add_builder_chat_routes(app)
     add_builder_prompt_routes(app)
     add_speech_routes(app, read_limited_body)  # /api/speech/... and /api/readings/...
+    add_video_routes(app)  # /api/videos/... and /api/video/licence
 
     static_dir = settings.static_dir or DEFAULT_STATIC_DIR
     if (static_dir / "index.html").is_file():

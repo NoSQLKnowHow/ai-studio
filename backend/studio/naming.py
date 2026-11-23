@@ -73,6 +73,12 @@ def speech_filename(*, title: str, part: int, voice: str, created_at: datetime, 
     return "_".join(parts) + ext
 
 
+def video_filename(*, prompt: str, seconds: float, seed: int, created_at: datetime) -> str:
+    """`video_<prompt-words>_<N>s_s<seed>_<YYYYmmdd-HHMMSS>.mp4` (DESIGN.md §46.9). `seconds` is the length the clip really has, rounded to the nearest second."""
+    parts = ["video", slugify(prompt), f"{int(round(seconds))}s", f"s{seed}", created_at.strftime("%Y%m%d-%H%M%S")]
+    return "_".join(parts) + ".mp4"
+
+
 def vector_filename(*, prompt: str, width_mm: float, height_mm: float, colours: int, seed: int, created_at: datetime, suffix: str = ".svg") -> str:
     """`vector_<prompt-words>_<W>x<H>mm_<N>c_s<seed>_<YYYYmmdd-HHMMSS>.svg` (DESIGN.md §31.12.7). The size is the sheet's, in millimetres, and `N`
     the number of colours the picture really has (white included). `suffix` is `.svg`, `-layers.zip` or `.png`: the three downloads of one vector

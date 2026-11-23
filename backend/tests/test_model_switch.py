@@ -163,9 +163,9 @@ def test_unload_is_refused_while_a_track_is_being_made(client_factory):
 
 
 def test_a_model_that_does_not_exist_is_refused(client):
-    for model in ("video", "", "Music", None):
+    for model in ("film", "", "Music", None):  # ("video" was in this list until 1.27 made it a model: test_video_server.py)
         assert client.post("/api/model/load", json={"model": model}).status_code == 422, model
-    assert client.post("/api/model/unload", json={"model": "video"}).status_code == 422
+    assert client.post("/api/model/unload", json={"model": "film"}).status_code == 422
     assert client.post("/api/model/load", json={"model": "music", "extra": 1}).status_code == 422
     assert not any(alive(client).values())
 

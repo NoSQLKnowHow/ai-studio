@@ -5,9 +5,11 @@
 // file outside `frontend/`, as `history.test.ts` does with `filter_cases.json`.
 import contract from "../../backend/tests/vector_contract.json";
 import speechContract from "../../backend/tests/speech_contract.json";
+import videoContract from "../../backend/tests/video_contract.json";
 import type { PartDetail, Prepared, SpeechCaps, SpeechLimits } from "./speechTypes";
 import type {
-  BinnedImage, BinnedTrack, BinnedVectorItem, Capabilities, ImageInfo, ImageRun, MusicRun, SpeechRun, Status, TrackInfo, VectorItem, VectorLimits, VectorRun,
+  BinnedImage, BinnedTrack, BinnedVectorItem, Capabilities, ImageInfo, ImageRun, MusicRun, SpeechRun, Status, TrackInfo, VectorItem, VectorLimits, VectorRun, VideoCaps, VideoInfo,
+  VideoLimits, VideoRun,
 } from "./types";
 
 /** The contract file as it is, for the tests that compare the page's types and requests with it. Cloned, so a test that changes it changes nothing else. */
@@ -16,6 +18,10 @@ export const VECTOR_CONTRACT = structuredClone(contract);
 /** The Speech tab's contract file (backend/tests/speech_contract.json, DESIGN.md §38.9): what the server sent in a real run of its fake engines, which the server's
  *  own tests check it still sends. Cloned for the same reason. */
 export const SPEECH_CONTRACT = structuredClone(speechContract);
+
+/** The Video tab's contract file (backend/tests/video_contract.json, DESIGN.md §46.10): what the server sent in a real run of its fake video engine, which the server's own tests check
+ *  it still sends. Cloned for the same reason. */
+export const VIDEO_CONTRACT = structuredClone(videoContract);
 
 /** The capabilities as GET /api/capabilities answers them. Its `defaults` are the server's: 16:9, 2752×1536 since 1.16 (DESIGN.md §34).
  *  The page has no default of its own, so a test that needs a particular shape names it (`aspect: "1:1"`) and does not rely on this one. */
@@ -57,6 +63,7 @@ export const CAPS: Capabilities = {
       preferences_max: 50, preference_chars: 300,
     },
     speech: structuredClone(speechContract.limits_speech) as unknown as SpeechLimits, // the contract's own limits
+    video: structuredClone(videoContract.limits_video) as unknown as VideoLimits, // the contract's own limits (the test engine's table and sizes, not the Spark's)
     annotations: { tags_max: 12, tag_chars: 30, notes_chars: 2000, search_chars: 200, search_words: 10 },
   },
   music: { available: true, state: "done", reason: null, hint: null, model: "fake-music" },
@@ -64,6 +71,7 @@ export const CAPS: Capabilities = {
   builder: { available: true, configured: true, reachable: true, model: "fake-builder", vision: true },
   annotations: { search: "words", suggest: { available: true, reason: null } }, // DESIGN.md §45.7
   speech: structuredClone(speechContract.capabilities_speech) as unknown as SpeechCaps, // the two fake engines, both ready
+  video: structuredClone(videoContract.capabilities_video) as unknown as VideoCaps, // the fake video engine, ready, with the licence acknowledged
   upscaler: { available: true, model: "fake", reason: null, hint: null, max_enlargement: 4 },
   queue_cap: 10,
   device: { name: "fake (no GPU used)" },
@@ -238,3 +246,28 @@ export const makePrepared = (overrides: Partial<Prepared> = {}): Prepared => ({ 
 
 /** One part of a finished reading with its pieces, as the server sends it. */
 export const makePartDetail = (overrides: Partial<PartDetail> = {}): PartDetail => ({ ...(structuredClone(speechContract.part_detail) as unknown as PartDetail), ...overrides });
+
+// ------------------------------------------------------------------ Video (DESIGN.md §46): the contract's, made into the page's types
+let videoCounter = 0;
+
+/** The clip of a finished video run: the contract's own (256x128, 25 frames, sound), with its id and links changed so that two clips do not share a URL. */
+export function makeVideoInfo(overrides: Partial<VideoInfo> = {}): VideoInfo {
+  const info = structuredClone(videoContract.run_text.video) as unknown as VideoInfo;
+  const id = overrides.id ?? `video${String(videoCounter + 1).padStart(4, "0")}`;
+  const base = `/api/videos/${id}`;
+  return { ...info, id, url: base, download_url: `${base}?download=1`, poster_url: `${base}/poster`, thumb_url: `${base}/thumb`, ...overrides };
+}
+
+/** A video run as the server sends it: the contract's finished text-to-video clip, with its own id and time. Pass `video: null` for a clip that is not made yet. */
+export function makeVideoRun(overrides: Partial<VideoRun> = {}): VideoRun {
+  videoCounter += 1;
+  const run = structuredClone(videoContract.run_text) as unknown as VideoRun;
+  const id = overrides.id ?? `video${String(videoCounter).padStart(4, "0")}`;
+  return {
+    ...run,
+    id,
+    created_at: `2026-11-02T13:00:${String(videoCounter % 60).padStart(2, "0")}.000Z`,
+    video: makeVideoInfo({ id }),
+    ...overrides,
+  };
+}

@@ -1,8 +1,8 @@
 """Schema 13 (DESIGN.md §45.7, criteria 400 and 421, 422): the tables of tags and notes and the word index over runs.
 
 What these protect: a database made by the 1.24 studio (schema 11) is upgraded after a copy is kept, loses nothing, and ends up exactly the database a new one is (the same
-tables, columns and indexes); **every run that already exists is found by a search afterwards** (a search that found only new runs would be a bug); the upgrade only ADDS tables,
-so the `runs` table is as it was; a second start changes nothing and makes no second copy; an index that has fallen out of step is made again at the next start; and a SQLite
+tables, columns and indexes); **every run that already exists is found by a search afterwards** (a search that found only new runs would be a bug); schema 13 only ADDED tables,
+and since 1.27's schema 14 an upgrade from 11 also rebuilds `runs`, which must still lose no column and no run; a second start changes nothing and makes no second copy; an index that has fallen out of step is made again at the next start; and a SQLite
 without FTS5 still opens the database, with the plain match standing in for the index.
 
 A schema 11 database is made by taking a current one and putting it back: the three tables dropped and the version set to 11. That is what 1.24 left, and what the upgrade
@@ -28,10 +28,12 @@ NEW_TABLES = {"run_tags", "run_notes", "run_search"}
 
 def sql_of_everything(path) -> list[tuple]:
     """Every table, index and view the database has, by name with the SQL that made it: what two databases must share to be the same database. (The FTS5 table's own shadow tables are in
-    the list by name, so an index made the other way would show.)"""
+    the list by name, so an index made the other way would show.) Since 1.27 an upgrade from schema 11 or 12 rebuilds `runs` (schema 14 widens the CHECK on its mode), and SQLite spells
+    the name of a table that was renamed into place in quotes (`CREATE TABLE "runs"`): that spelling is the only difference from a new database's, so it is written the other way here."""
     conn = sqlite3.connect(path)
     try:
-        return sorted(conn.execute("SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'").fetchall())
+        rows = conn.execute("SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'").fetchall()
+        return sorted((kind, name, sql.replace('CREATE TABLE "runs"', "CREATE TABLE runs", 1) if sql else sql) for kind, name, sql in rows)
     finally:
         conn.close()
 
@@ -74,8 +76,8 @@ def found(db: Database, text: str) -> list[str]:
     return [row["prompt"] for row in rows]
 
 
-def test_the_schema_is_13_and_a_new_database_has_the_three_tables_and_the_index(tmp_path):
-    assert SCHEMA_VERSION == 13  # 1.26: tags, notes and the word index (1.24 made it 11; 1.25's pronunciation list and speakers made it 12)
+def test_the_schema_is_at_least_13_and_a_new_database_has_the_three_tables_and_the_index(tmp_path):
+    assert SCHEMA_VERSION >= 13  # 1.26: tags, notes and the word index (1.24 made it 11; 1.25's pronunciation list and speakers made it 12; 1.27's Video tab made it 14: test_video_schema.py)
     path = tmp_path / "studio.sqlite"
     db = Database(path)
     try:
@@ -84,7 +86,7 @@ def test_the_schema_is_13_and_a_new_database_has_the_three_tables_and_the_index(
         db.close()
     names = {name for (_type, name, _sql) in sql_of_everything(path)}
     assert NEW_TABLES <= names and "idx_run_tags_tag" in names
-    assert stored_version(path) == "13"
+    assert stored_version(path) == str(SCHEMA_VERSION)
     assert not list(tmp_path.glob("*before-schema*"))  # a new database has nothing to keep a copy of
 
 
@@ -99,16 +101,17 @@ def test_a_schema_11_database_is_upgraded_after_a_copy_and_keeps_every_run(tmp_p
 
     migrated = Database(path)
     try:
-        assert stored_version(path) == "13"
+        assert stored_version(path) == str(SCHEMA_VERSION)
         # the same database as a new one makes: every table, column and index, with the SQL that made it
         assert sql_of_everything(path) == sql_of_everything(fresh)
-        # and the `runs` table was not touched at all: the same columns, in the same order, and every run with every value it had (the upgrade only adds tables)
+        # and the runs lost nothing: the same columns, in the same order, and every run with every value it had (schema 13 only added tables; the rebuild that schema 14 makes of `runs`
+        # carries every column and row, which is what this checks)
         assert columns(path, "runs") == columns_before == columns(fresh, "runs")
         assert [dict(r) for r in migrated.read_all("SELECT * FROM runs ORDER BY seq")] == before
         assert sqlite3.connect(path).execute("PRAGMA foreign_key_check").fetchall() == []
     finally:
         migrated.close()
-    copy = tmp_path / "studio.sqlite.before-schema-13"
+    copy = tmp_path / f"studio.sqlite.before-schema-{SCHEMA_VERSION}"  # named for the version the upgrade went TO
     assert copy.exists() and stored_version(copy) == "11" and not NEW_TABLES & {name for (_t, name, _s) in sql_of_everything(copy)}  # the database as 1.24 left it: a way back
     assert [r[0] for r in sqlite3.connect(copy).execute("SELECT id FROM runs ORDER BY seq")] == [run_row(n)["id"] for n in (1, 2, 3)]
 
@@ -133,7 +136,7 @@ def test_every_run_that_already_exists_is_found_after_the_upgrade(tmp_path):
 def test_a_second_start_changes_nothing_and_makes_no_second_copy(tmp_path):
     path, _fresh = database_as_1_24(tmp_path)
     Database(path).close()
-    copy = tmp_path / "studio.sqlite.before-schema-13"
+    copy = tmp_path / f"studio.sqlite.before-schema-{SCHEMA_VERSION}"  # named for the version the upgrade went TO
     first_copy = copy.read_bytes()
     shape = sql_of_everything(path)
     again = Database(path)
@@ -144,14 +147,14 @@ def test_a_second_start_changes_nothing_and_makes_no_second_copy(tmp_path):
     assert copy.read_bytes() == first_copy and sql_of_everything(path) == shape
 
 
-def test_a_1_19_database_reaches_schema_13_in_one_start_and_its_runs_are_found(tmp_path):
+def test_a_1_19_database_reaches_the_current_schema_in_one_start_and_its_runs_are_found(tmp_path):
     """An old database goes through the rebuild of schema 10 (which makes a new `runs` table) and ends with the new tables and an index that holds its runs."""
     from test_speech_schema import database_as_1_19
 
     path, fresh, _before, _prompt = database_as_1_19(tmp_path)
     db = Database(path)
     try:
-        assert stored_version(path) == "13"
+        assert stored_version(path) == str(SCHEMA_VERSION)
         # the same database as a new one, except for how SQLite spells the name of a table that was rebuilt and renamed (`"runs"`, quoted): the rebuild is schema 10's, and its columns
         # are compared by `columns` instead
         same = lambda path: [row for row in sql_of_everything(path) if row[1] != "runs"]  # noqa: E731
@@ -230,6 +233,6 @@ def test_an_upgrade_from_12_or_11_indexes_every_run(tmp_path, previous):
     conn.close()
     db = Database(path)
     try:
-        assert db.read_one("SELECT COUNT(*) AS n FROM run_search")["n"] == 3 and stored_version(path) == "13"
+        assert db.read_one("SELECT COUNT(*) AS n FROM run_search")["n"] == 3 and stored_version(path) == str(SCHEMA_VERSION)
     finally:
         db.close()
