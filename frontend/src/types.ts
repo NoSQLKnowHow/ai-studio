@@ -599,7 +599,7 @@ export interface ClipTiming {
 
 /** What the video form needs from the page (DESIGN.md §46.10): the limits the server enforces, so the page repeats none of them. */
 export interface VideoLimits {
-  size: { multiple: number; min: number; max: number; default: [number, number]; presets: { id: string; label: string; width: number; height: number }[] };
+  size: { multiple: number; min: number; max: number; default: [number, number]; presets: { id: string; label: string; width: number; height: number; make_width: number; make_height: number }[] };
   seconds: { min: number; max: number; default: number; choices: number[]; long_from: number; long_note: string };
   fps: number[];
   images: { start: number; end: number };

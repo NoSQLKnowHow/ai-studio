@@ -18,6 +18,7 @@ interface Props {
   run: VideoRun;
   now: number;
   estimate: VideoEstimateTable | undefined; // how long a clip takes, for the line that says how long is left
+  makeSize?: (width: number, height: number) => [number, number]; // the size the program makes for a clip of this size (HD is made a little taller and trimmed); the work is that size's
   transient: boolean; // in a filtered view only because it is working (DESIGN.md §29.3, §32)
   viewScope: ViewScope; // which filter that is, so the note says what keeps the card there
   projects: ProjectControls; // the project folders, and what the Project button does (§32)
@@ -30,7 +31,7 @@ interface Props {
   onOpen: () => void; // open the viewer
 }
 
-export function VideoCard({ run, now, estimate, transient, viewScope, projects, onReuse, onRetry, onCancel, onToggleKeep, onRestore, onDelete, onOpen }: Props) {
+export function VideoCard({ run, now, estimate, makeSize, transient, viewScope, projects, onReuse, onRetry, onCancel, onToggleKeep, onRestore, onDelete, onOpen }: Props) {
   const [expanded, setExpanded] = useState(false);
   const label = videoStatusLabel(run);
   const active = run.status === "queued" || run.status === "running";
@@ -41,7 +42,8 @@ export function VideoCard({ run, now, estimate, transient, viewScope, projects, 
   const long = run.prompt.length > 240;
   const clip = run.video;
   const options = run.options;
-  const estimated = estimate ? (estimateClip(estimate, options.seconds, options.width, options.height, options.fps)?.seconds ?? null) : null; // from the clips made here, else the table
+  const [madeWidth, madeHeight] = makeSize ? makeSize(options.width, options.height) : [options.width, options.height];
+  const estimated = estimate ? (estimateClip(estimate, options.seconds, madeWidth, madeHeight, options.fps)?.seconds ?? null) : null; // from the clips made here, else the table
   const fraction = run.status === "running" ? stageFraction(run.progress) : null;
   // the player has the clip's own shape, so nothing jumps when the poster loads and nothing runs off a phone's screen
   const shape = `${clip?.width ?? options.width} / ${clip?.height ?? options.height}`;

@@ -156,6 +156,25 @@ describe("a clip that is waiting or being made", () => {
     card(working, { now: Date.parse("2026-11-02T13:00:30.000Z"), estimate: slow });
     expect(screen.getByText(/about 8 minutes to go/)).toBeTruthy(); // this machine's own clip took 500 s: 470 s are left
   });
+
+  it("counts the size the program makes and not the size that is kept, when it is told how (HD and Scope are made a little taller and trimmed)", () => {
+    // a table in which 4% of the work is minutes: 30,000 s for 5 s at 1920×832, the size Scope is made at
+    const table: VideoEstimateTable = { ...TABLE, points: [[0, 0], [5, 30000]], reference_pixels: 1920 * 832, history: [] };
+    const working = made({ status: "running", video: null, finished_at: null, progress: { image: 1, of: 1, step: 1, steps: 8, stage: "denoise" } });
+    working.options = { ...working.options, seconds: 5, width: 1920, height: 800, fps: 24 };
+    const now = Date.parse("2026-11-02T13:00:30.000Z");
+    const toGo = () => screen.getByText(/to go/).textContent;
+
+    card(working, { now, estimate: table, makeSize: (width, height) => [width, height === 800 ? 832 : height] });
+    const told = toGo();
+    cleanup();
+    card(working, { now, estimate: table });  // no mapping given: counted at the size that is kept
+    const kept = toGo();
+    cleanup();
+    expect(told).not.toBe(kept);  // the test means something only if the two read differently
+    card({ ...working, options: { ...working.options, height: 832 } }, { now, estimate: table });  // a clip that really is 1920×832
+    expect(toGo()).toBe(told);
+  });
 });
 
 describe("a clip that failed or was canceled", () => {

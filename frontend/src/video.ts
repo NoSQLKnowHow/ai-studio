@@ -30,6 +30,26 @@ export function defaultVideoForm(caps: Capabilities): VideoForm {
   };
 }
 
+/** The size the program is asked to make for a clip delivered at `width` × `height` (DESIGN.md §46.20): the same, except for a preset whose size the model cannot make itself, which is made
+ *  a few pixels bigger and trimmed (HD 1920×1080 is made 1920×1088). The server's `make_size` is the same rule: only a whole preset's size counts, as a pair. */
+export function makeSize(size: VideoLimits["size"], width: number, height: number): [number, number] {
+  const preset = size.presets.find((p) => p.width === width && p.height === height && (p.make_width !== p.width || p.make_height !== p.height));
+  return preset ? [preset.make_width, preset.make_height] : [width, height];
+}
+
+/** Whether a clip of this size is made bigger and trimmed (its sides need not be multiples of the model's). */
+export function isTrimmedSize(size: VideoLimits["size"], width: number, height: number): boolean {
+  const [madeWidth, madeHeight] = makeSize(size, width, height);
+  return madeWidth !== width || madeHeight !== height;
+}
+
+/** Whether a width and a height may be asked for together: both multiples of the model's step within its limits, or a preset's trimmed size as the pair it is. The server decides again. */
+export function sizeAllowed(size: VideoLimits["size"], width: number, height: number): boolean {
+  if (isTrimmedSize(size, width, height)) return true;
+  const fits = (side: number): boolean => Number.isInteger(side) && side % size.multiple === 0 && side >= size.min && side <= size.max;
+  return fits(width) && fits(height);
+}
+
 /** The saved form, made safe: a field that is missing or no longer allowed (a limit changed, the browser's storage was edited) is the default's. Never throws. */
 export function loadVideoForm(caps: Capabilities, store: KeyValueStore): VideoForm {
   const base = defaultVideoForm(caps);
@@ -43,14 +63,16 @@ export function loadVideoForm(caps: Capabilities, store: KeyValueStore): VideoFo
   }
   const whole = (value: unknown, lo: number, hi: number, fallback: number): number => (typeof value === "number" && Number.isFinite(value) && value >= lo && value <= hi ? value : fallback);
   const size = (value: unknown, fallback: number): number => (typeof value === "number" && Number.isInteger(value) && value % limits.size.multiple === 0 && value >= limits.size.min && value <= limits.size.max ? value : fallback);
+  // a preset's trimmed size (HD 1920×1080) has a side that is no multiple, so it is kept or dropped as the pair it is
+  const savedPair = typeof saved.width === "number" && typeof saved.height === "number" && isTrimmedSize(limits.size, saved.width, saved.height);
   return {
     mode: saved.mode === "image" ? "image" : "text",
     prompt: typeof saved.prompt === "string" ? saved.prompt.slice(0, limits.prompt_chars) : base.prompt,
     sound: typeof saved.sound === "string" ? saved.sound.slice(0, limits.sound_chars) : base.sound,
     keepSound: typeof saved.keepSound === "boolean" ? saved.keepSound : base.keepSound,
     seconds: whole(saved.seconds, limits.seconds.min, limits.seconds.max, base.seconds),
-    width: size(saved.width, base.width),
-    height: size(saved.height, base.height),
+    width: savedPair ? (saved.width as number) : size(saved.width, base.width),
+    height: savedPair ? (saved.height as number) : size(saved.height, base.height),
     fps: typeof saved.fps === "number" && limits.fps.includes(saved.fps) ? saved.fps : base.fps,
     seedLocked: saved.seedLocked === true,
     seed: whole(saved.seed, 0, caps.limits.seed.max, base.seed),
@@ -235,10 +257,8 @@ export function videoProblem(form: VideoForm, caps: Capabilities, hasPicture: bo
   if (form.sound.length > limits.sound_chars) return `What you hear is ${form.sound.length} characters; the limit is ${limits.sound_chars}.`;
   if (form.mode === "image" && !hasPicture) return "Image to video needs a start picture: choose one from your history, paste one or upload one.";
   if (!(form.seconds >= limits.seconds.min && form.seconds <= limits.seconds.max)) return `A clip is between ${limits.seconds.min} and ${limits.seconds.max} seconds.`;
-  for (const side of [form.width, form.height]) {
-    if (side % limits.size.multiple !== 0 || side < limits.size.min || side > limits.size.max) {
-      return `Width and height are multiples of ${limits.size.multiple}, from ${limits.size.min} to ${limits.size.max}.`;
-    }
+  if (!sizeAllowed(limits.size, form.width, form.height)) {
+    return `Width and height are multiples of ${limits.size.multiple}, from ${limits.size.min} to ${limits.size.max} (or one of the HD and Scope sizes).`;
   }
   return null;
 }
@@ -273,9 +293,10 @@ export function videoFormFromRun(run: VideoRun, caps: Capabilities, current: Vid
   const o = run.options;
   const limits = caps.limits.video;
   const fits = (value: number): boolean => value % limits.size.multiple === 0 && value >= limits.size.min && value <= limits.size.max;
+  const pair = isTrimmedSize(limits.size, o.width, o.height);  // HD 1920×1080 is a pair: neither side is a multiple on its own
   return {
     ...current, mode: o.mode === "image" ? "image" : "text", prompt: run.prompt, sound: o.sound, keepSound: o.keep_sound, seconds: Math.min(limits.seconds.max, Math.max(limits.seconds.min, o.seconds)),
-    width: fits(o.width) ? o.width : current.width, height: fits(o.height) ? o.height : current.height, fps: limits.fps.includes(o.fps) ? o.fps : current.fps, seedLocked: true, seed: o.seed,
+    width: pair || fits(o.width) ? o.width : current.width, height: pair || fits(o.height) ? o.height : current.height, fps: limits.fps.includes(o.fps) ? o.fps : current.fps, seedLocked: true, seed: o.seed,
   };
 }
 
@@ -454,6 +475,7 @@ export const SOUND_EXAMPLES = ["a man says, “Hello”", "rain on a window", "s
 export function makeLine(form: VideoForm, limits: VideoLimits): string {
   const frames = framesFor(form.seconds, form.fps);
   const parts = [formatSeconds(form.seconds), `${form.width}×${form.height}`, `${form.fps} fps`, "Draft", form.keepSound ? "with sound" : "no sound in the saved file"];
-  const estimate = estimateText(limits.estimate, form.seconds, form.width, form.height, form.fps);
+  const [madeWidth, madeHeight] = makeSize(limits.size, form.width, form.height);  // the work is the size that is made (HD 1920×1080 is made 1920×1088)
+  const estimate = estimateText(limits.estimate, form.seconds, madeWidth, madeHeight, form.fps);
   return `${parts.join(", ")} (${frames} frames).${estimate ? ` ${estimate}` : ""}`;
 }

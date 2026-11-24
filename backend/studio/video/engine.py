@@ -68,13 +68,29 @@ class Estimate:
 
 @dataclass(frozen=True)
 class SizePreset:
+    """A size the form offers. `width` and `height` are the clip the person gets. When the model cannot make that size itself (it makes only multiples of 64: 1080 is not one) the preset
+    names the size it DOES make, `make_width` and `make_height`, which is the next multiples up, and the studio trims the clip to `width` x `height` from the middle once it is made
+    (DESIGN.md §46.20). Left at 0, the model makes exactly the size that is delivered."""
+
     id: str
     label: str
     width: int
     height: int
+    make_width: int = 0
+    make_height: int = 0
+
+    @property
+    def make(self) -> tuple[int, int]:
+        """The size the engine is asked to make."""
+        return (self.make_width or self.width, self.make_height or self.height)
+
+    @property
+    def cropped(self) -> bool:
+        """Whether the clip is trimmed after it is made."""
+        return self.make != (self.width, self.height)
 
     def as_dict(self) -> dict[str, Any]:
-        return {"id": self.id, "label": self.label, "width": self.width, "height": self.height}
+        return {"id": self.id, "label": self.label, "width": self.width, "height": self.height, "make_width": self.make[0], "make_height": self.make[1]}
 
 
 @dataclass(frozen=True)
@@ -100,6 +116,30 @@ class VideoEngineInfo:
     sound: bool = True  # the model makes the sound with the picture
     interruptible: bool = True  # Cancel stops a clip that is being made, not only between clips
     notes: str = ""
+
+    def __post_init__(self) -> None:
+        """A preset that is trimmed must be made bigger than it is delivered by less than one step of the model's size, and be a size the model makes: a mistake here would be a clip
+        the studio cannot trim to size, so it is found when the engine is defined, and not by a person waiting for a clip."""
+        for preset in self.size_presets:
+            if not preset.cropped:
+                continue
+            (width, height), (make_width, make_height) = (preset.width, preset.height), preset.make
+            if make_width % self.size_multiple or make_height % self.size_multiple:
+                raise ValueError(f"size preset {preset.id!r}: {make_width}x{make_height} is not a size the model makes (multiples of {self.size_multiple})")
+            if not (0 <= make_width - width < self.size_multiple and 0 <= make_height - height < self.size_multiple) or width % 2 or height % 2:
+                raise ValueError(f"size preset {preset.id!r}: {width}x{height} must be even and less than {self.size_multiple} pixels smaller than {make_width}x{make_height}")
+
+    def make_size(self, width: int, height: int) -> tuple[int, int]:
+        """The size the engine is asked to make for a clip delivered at `width` x `height`: the same, except for a preset's size that is trimmed (HD 1920x1080 is made 1920x1088). Only
+        a whole preset's size counts, as a pair: 1920 wide and 1080 high; there is no rounding up of any size a person types."""
+        for preset in self.size_presets:
+            if preset.cropped and (preset.width, preset.height) == (width, height):
+                return preset.make
+        return (width, height)
+
+    def is_trimmed_size(self, width: int, height: int) -> bool:
+        """Whether a clip of this size is made bigger and trimmed (so its sides need not be multiples of the model's)."""
+        return self.make_size(width, height) != (width, height)
 
     def as_dict(self) -> dict[str, Any]:
         return {

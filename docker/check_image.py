@@ -19,6 +19,7 @@ from __future__ import annotations
 import importlib.metadata as md
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -99,7 +100,28 @@ def speech_notes() -> list[str]:
     return notes
 
 
+def video_ffmpeg_note() -> str:
+    """One `Video:` line for the H.264 encoder (libx264). The HD (1920x1080) and Scope (1920x800) sizes are made a few pixels taller and trimmed to size by ffmpeg, which converts the picture
+    once more and so needs an H.264 encoder (DESIGN.md section 46.20); every other size only has its streams copied. A note, like every line here: it never fails the build."""
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        return "Video: ffmpeg is not installed, so no clip can be finished"
+    try:
+        listing = subprocess.run([ffmpeg, "-hide_banner", "-encoders"], capture_output=True, text=True, timeout=30).stdout
+    except (OSError, subprocess.SubprocessError) as exc:
+        return f"Video: could not find out whether ffmpeg has an H.264 encoder ({type(exc).__name__}: {exc})"
+    # the encoder's NAME is the second column of a line (` V....D libx264   libx264 H.264 / AVC ...`): the description of `libx264rgb` also says "libx264", and is not the encoder
+    if "libx264" in {match.group(1) for match in re.finditer(r"^\s*[VAS][.A-Z]{5}\s+(\S+)", listing, re.MULTILINE)}:
+        return "Video: ffmpeg has an H.264 encoder (libx264): the HD and Scope sizes can be trimmed to size"
+    return "Video: ffmpeg has no H.264 encoder (libx264), so the HD (1920x1080) and Scope (1920x800) sizes cannot be trimmed to size; the other sizes are not affected"
+
+
 def video_notes() -> list[str]:
+    """All the `Video:` lines: the program's (`video_program_notes`), then the one for ffmpeg's H.264 encoder, which is separate because it is true whether or not a program is set up."""
+    return [*video_program_notes(), video_ffmpeg_note()]
+
+
+def video_program_notes() -> list[str]:
     """The `Video:` lines (DESIGN.md section 46.6): what was measured working, whether this image can run the program the first way (the host's LTX-2 clone shared in, whose python is a link
     to /usr/bin/python3) or the second (built in), with the same check the server makes at start-up (so that the line says what the Video tab will say). Nothing here can fail the build:
     a program that is not built in, a Python that is too old, a PyTorch that is not a CUDA build, model files that are not mounted (a build has none of them, and no clone) are each

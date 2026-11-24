@@ -1906,8 +1906,9 @@ class JobManager:
         if row["mode"] == VIDEO:  # one clip (DESIGN.md §46.6): the engine writes engine-out.mp4 in the run's video folder, and the picture it starts from (made its size) is beside it
             options = json.loads(row["options_json"])
             start = options.get("start")
+            width, height = self.video.info().make_size(row["width"], row["height"])  # HD 1920x1080 is made 1920x1088 and trimmed when the clip is taken in (service.accept_clip)
             return {
-                "run_id": row["id"], "engine": options["engine"], "variant": options["variant"], "prompt": row["effective_prompt"], "width": row["width"], "height": row["height"],
+                "run_id": row["id"], "engine": options["engine"], "variant": options["variant"], "prompt": row["effective_prompt"], "width": width, "height": height,
                 "num_frames": options["frames"], "fps": options["fps"], "seed": row["seed"], "out": f"video/{row['id']}/{CLIP_NAME}",
                 "images": [{"path": self.storage.rel(self.storage.video_dir(row["id"]) / "start.png"), "frame": start["frame"], "strength": start["strength"]}] if start else [],
             }

@@ -114,6 +114,44 @@ test("a clip is made from words and what you hear, is a real MP4 the browser can
   await expect(dialog).toHaveCount(0);
 });
 
+test("HD and Scope: the program is asked for a size it can make, the clip is trimmed to the size chosen, and the card, the player and the file all say that size (DESIGN.md §46.20)", async ({ page }) => {
+  await openVideo(page);
+  await acknowledged(page);
+  await form(page).getByRole("spinbutton", { name: "Seconds" }).fill("1"); // one second: 25 frames, so that a clip of this size is made in a moment
+
+  for (const [chip, label, width, height, madeHeight] of [
+    ["Scope 2.40:1 · 1920×800", "a long shot", 1920, 800, 832],
+    ["HD 1920×1080", "a wide shot", 1920, 1080, 1088],
+  ] as const) {
+    const words = unique(label);
+    await happens(page).fill(words);
+    await form(page).getByRole("button", { name: chip, exact: true }).click();
+    await expect(form(page).getByRole("button", { name: chip, exact: true })).toHaveAttribute("aria-pressed", "true");
+    // the form says what the program will make and that the studio trims it, before anything is sent
+    await expect(page.locator("[data-note='trimmed']")).toContainText(`the program makes ${width}×${madeHeight}`);
+    await expect(page.locator("[data-note='trimmed']")).toContainText(`trims the picture to ${width}×${height}`);
+    await expect(page.locator("[data-note='make-line']")).toContainText(`${width}×${height}`);
+    await make(page).click();
+    const c = clipCard(page, words).first();
+    await expect(c).toBeVisible();
+    await done(c);
+    await expect(c.locator("[data-note='facts']")).toContainText(`${width}×${height}`); // the size that was chosen, not the one the program made
+
+    // the browser's own player reads the file: it is the size that was chosen, and plays nothing by itself
+    const video = c.locator("video");
+    await expect.poll(() => video.evaluate((v: HTMLVideoElement) => v.readyState)).toBeGreaterThanOrEqual(1);
+    const facts = await video.evaluate((v: HTMLVideoElement) => ({ width: v.videoWidth, height: v.videoHeight, paused: v.paused, error: v.error?.code ?? null }));
+    expect(facts).toEqual({ width, height, paused: true, error: null });
+
+    // the server's own record: the file's facts, and the options as they were asked for (nothing of the size the program made)
+    const runs = (await (await page.request.get("/api/runs?kind=video")).json()).runs;
+    const run = runs.find((r: { prompt: string }) => r.prompt === words);
+    expect(run.video).toMatchObject({ width, height, has_audio: true, frames: 25 });
+    expect(run.options).toMatchObject({ width, height });
+    expect(Object.keys(run.options).filter((key: string) => key.startsWith("make"))).toEqual([]);
+  }
+});
+
 test("Cancel stops a clip that is being made and nothing of it is kept, and the next clip is made", async ({ page }) => {
   await openVideo(page);
   await acknowledged(page);

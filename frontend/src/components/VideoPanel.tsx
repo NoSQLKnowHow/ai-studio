@@ -6,7 +6,7 @@ import type { ViewScope } from "../format";
 import type { Capabilities, Status, VideoRun } from "../types";
 import { videoApi } from "../videoApi";
 import {
-  QUALITY_LINE, SOUND_EXAMPLES, diskText, lengthNote, loadVideoForm, madeText, makeLine, pictureFromChoice, saveVideoForm, sizeForPicture, videoAnnouncement, videoFormFromRun, videoProblem,
+  QUALITY_LINE, SOUND_EXAMPLES, diskText, isTrimmedSize, lengthNote, loadVideoForm, madeText, makeLine, makeSize, pictureFromChoice, saveVideoForm, sizeForPicture, videoAnnouncement, videoFormFromRun, videoProblem,
   videoRetryRequest, buildVideoRequest,
   type AnimateRequest, type StartPicture, type VideoForm, type VideoPictureChoice,
 } from "../video";
@@ -231,6 +231,10 @@ export function VideoPanel({
   const note = lengthNote(form.seconds, limits);
   const presetId = limits.size.presets.find((preset) => preset.width === form.width && preset.height === form.height)?.id ?? "custom";
   const chosenShape = `${form.width}×${form.height}`;
+  // HD and Scope are made a few pixels taller than they are kept, and trimmed (DESIGN.md §46.20): the line under the sizes says so for the one that is chosen, and the others' rule otherwise
+  const trimmed = isTrimmedSize(limits.size, form.width, form.height);
+  const [madeWidth, madeHeight] = makeSize(limits.size, form.width, form.height);
+  const hasTrimmedSizes = limits.size.presets.some((preset) => preset.make_width !== preset.width || preset.make_height !== preset.height);
 
   const body: ReactNode = (() => {
     if (!video.available) {
@@ -336,15 +340,19 @@ export function VideoPanel({
                     <button key={preset.id} type="button" className="chip" aria-pressed={presetId === preset.id} onClick={() => update({ width: preset.width, height: preset.height })}>{preset.label}</button>
                   ))}
                 </div>
-                <p className="field-hint">Each side is a multiple of {limits.size.multiple}. {chosenShape}.</p>
+                {trimmed ? (
+                  <p className="field-hint" data-note="trimmed">{chosenShape}: the program makes {madeWidth}×{madeHeight} (it makes only multiples of {limits.size.multiple}) and the studio trims the picture to {chosenShape} from the middle, which converts it once more.</p>
+                ) : (
+                  <p className="field-hint">Each side is a multiple of {limits.size.multiple}. {chosenShape}.{hasTrimmedSizes ? " HD and Scope are the exceptions: they are made a few pixels taller and trimmed to size." : ""}</p>
+                )}
               </div>
             </div>
 
             <details className="music-advanced">
               <summary>Custom size and seed{form.seedLocked ? ` · seed locked to ${form.seed}` : ""}</summary>
               <div className="music-advanced-body">
-                <NumberField label="Width" value={form.width} min={limits.size.min} max={limits.size.max} step={limits.size.multiple} hint={`A multiple of ${limits.size.multiple}.`} onChange={(width) => update({ width })} />
-                <NumberField label="Height" value={form.height} min={limits.size.min} max={limits.size.max} step={limits.size.multiple} hint={`A multiple of ${limits.size.multiple}.`} onChange={(height) => update({ height })} />
+                <NumberField label="Width" value={form.width} min={limits.size.min} max={limits.size.max} step={limits.size.multiple} hint={trimmed ? `Trimmed from ${madeWidth}.` : `A multiple of ${limits.size.multiple}.`} onChange={(width) => update({ width })} />
+                <NumberField label="Height" value={form.height} min={limits.size.min} max={limits.size.max} step={limits.size.multiple} hint={trimmed ? `Trimmed from ${madeHeight}.` : `A multiple of ${limits.size.multiple}.`} onChange={(height) => update({ height })} />
                 <div className="field">
                   <label className="choice">
                     <input type="checkbox" checked={form.seedLocked} onChange={(e) => update({ seedLocked: e.target.checked })} />
@@ -398,7 +406,7 @@ export function VideoPanel({
           empty
         ) : (
           runs.map((run) => (
-            <VideoCard key={run.id} run={run} now={now} estimate={limits.estimate} transient={isTransient(run)} viewScope={viewScope} projects={projects}
+            <VideoCard key={run.id} run={run} now={now} estimate={limits.estimate} makeSize={(width, height) => makeSize(limits.size, width, height)} transient={isTransient(run)} viewScope={viewScope} projects={projects}
               onReuse={() => reuse(run)} onRetry={() => void retry(run)} onCancel={() => onCancel(run)} onToggleKeep={() => onToggleKeep(run)} onRestore={() => onRestore(run)}
               onDelete={() => onDelete(run)} onOpen={() => onOpen(run)} />
           ))

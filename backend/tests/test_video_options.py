@@ -158,7 +158,8 @@ def test_the_limits_are_the_engines_and_the_settings_not_numbers_of_the_pages_ow
     limits = video_limits(SETTINGS, fake.INFO)
     assert limits["size"]["multiple"] == 64 and limits["size"]["default"] == [1280, 704]
     assert [(p["width"], p["height"]) for p in limits["size"]["presets"]][0] == (1280, 704)
-    assert all(p["width"] % 64 == 0 and p["height"] % 64 == 0 for p in limits["size"]["presets"])  # every preset is one the server accepts
+    # every size the program is asked to make is a multiple of 64 (the trimmed presets, HD and Scope, are delivered a little smaller than that: test_video_trim.py)
+    assert all(p["make_width"] % 64 == 0 and p["make_height"] % 64 == 0 for p in limits["size"]["presets"])
     assert limits["seconds"] == {"min": 1, "max": 30, "default": 10, "choices": [5, 10, 20, 30], "long_from": 10, "long_note": "Longer clips can show odd body motion; try another seed."}
     assert limits["fps"] == [24] and limits["images"] == {"start": 1, "end": 0} and limits["sound_chars"] == 1000
     assert video_limits(Settings(pipeline="fake", video_max_seconds=15), fake.INFO)["seconds"]["choices"] == [5, 10]

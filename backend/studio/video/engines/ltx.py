@@ -92,7 +92,8 @@ INFO = VideoEngineInfo(
         notice="Made with LTX-2.5 by Lightricks, under the LTX-2.x Community License Agreement."),
     memory_gb=56.0,  # the machine's memory in use peaked at 56,973 MiB (55.6 GiB) for a 30 s clip, of which about 3 GB is what an idle machine uses
     size_multiple=64, size_min=256, size_max=1920, size_default=(1280, 704),
-    size_presets=(SizePreset("landscape", "1280×704", 1280, 704), SizePreset("quick", "1024×576 (quick look)", 1024, 576),
+    size_presets=(SizePreset("landscape", "1280×704", 1280, 704), SizePreset("hd", "HD 1920×1080", 1920, 1080, 1920, 1088),
+                  SizePreset("scope", "Scope 2.40:1 · 1920×800", 1920, 800, 1920, 832), SizePreset("quick", "1024×576 (quick look)", 1024, 576),
                   SizePreset("portrait", "704×1280", 704, 1280), SizePreset("tiny", "512×320 (a test)", 512, 320)),
     fps_choices=(24,),
     estimate=Estimate(points=((0.0, 45.0), (5.0, 154.0), (10.0, 293.0), (20.0, 604.0), (30.0, 1036.0)), reference_pixels=1280 * 704, kind="measured",

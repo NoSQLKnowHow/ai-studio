@@ -172,17 +172,30 @@ def check_output(facts: ClipFacts, *, width: int, height: int, frames: int, fps:
     return None
 
 
-def finish_clip(ffmpeg: str, ffprobe: str, source: Path, target: Path, *, facts: ClipFacts, keep_sound: bool, comment: str, title: str) -> ClipFacts:
+def finish_clip(ffmpeg: str, ffprobe: str, source: Path, target: Path, *, facts: ClipFacts, keep_sound: bool, comment: str, title: str,
+                trim_to: Optional[tuple[int, int]] = None) -> ClipFacts:
     """Make the file the studio keeps from the one the engine wrote, and return its facts: the streams copied if they already play everywhere (H.264 and AAC), converted if not,
     with the sound taken out if the person asked for none, the index at the front (`faststart`, so that it starts playing before it is all downloaded) and, in its file
     information, the licence notice (as the comment) and the words that made it (as the title; MP4 has no place for the name of the program that finished it, and ffmpeg drops a
-    tag it cannot place, so none is asked for). The new file is written beside the final name and renamed into it, so that a half-written file is never taken for a clip."""
+    tag it cannot place, so none is asked for). The new file is written beside the final name and renamed into it, so that a half-written file is never taken for a clip.
+
+    `trim_to` is a (width, height) smaller than the clip by a few pixels, for the sizes the model cannot make itself (HD 1920x1080 is made 1920x1088; DESIGN.md §46.20): the picture
+    is cut to it from the middle, which means it is converted once more (H.264 at CRF 18, the quality the studio's other conversion uses: on a detailed test picture it changed the picture by
+    0.27 of 255 on average, which is not to be seen), and the sound is copied as it is. How big the file then is, for the program's real clips, is for the Spark's first HD clip to say."""
     partial = target.with_name(target.name + ".part.mp4")
     partial.unlink(missing_ok=True)
     argv = [ffmpeg, "-v", "error", "-y", "-i", str(source), "-map", "0:v:0"]
     if keep_sound and facts.has_audio:
         argv += ["-map", "0:a:0"]
-    if facts.playable_everywhere:
+    if trim_to is not None:
+        width, height = trim_to
+        if not (0 < width <= facts.width and 0 < height <= facts.height) or width % 2 or height % 2:
+            raise MediaError(f"A {facts.width}x{facts.height} clip cannot be trimmed to {width}x{height}.")
+        argv += ["-vf", f"crop={width}:{height}:{(facts.width - width) // 2}:{(facts.height - height) // 2}",
+                 "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-preset", "medium"]
+        if keep_sound and facts.has_audio:
+            argv += ["-c:a", "copy"] if facts.audio_codec in BROWSER_AUDIO else ["-c:a", "aac", "-b:a", "192k"]
+    elif facts.playable_everywhere:
         argv += ["-c", "copy"]
     else:  # a codec some browsers or phones cannot play: converted once, here (DESIGN.md §46.9)
         argv += ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-preset", "medium"]

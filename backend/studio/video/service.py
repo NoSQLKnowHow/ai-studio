@@ -64,7 +64,11 @@ class VideoService:
     def timings(self) -> list[dict[str, Any]]:
         """The times of the clips this engine's model made here, newest first (DESIGN.md §46.8): what the page estimates the next clip's time from. Only the current engine's: the
         run's `model_id` starts with the engine's own."""
-        return self.store.timings(f"{self.info().model_id} · ", self.TIMINGS_LIMIT)
+        info = self.info()
+        entries = self.store.timings(f"{info.model_id} · ", self.TIMINGS_LIMIT)
+        for entry in entries:  # the work a clip took is the size the model MADE (HD 1920x1080 is made 1920x1088), not the size that was kept
+            entry["width"], entry["height"] = info.make_size(entry["width"], entry["height"])
+        return entries
 
     def forget_tools(self) -> None:
         """Look for ffmpeg and ffprobe again at the next ask (the check-again button, DESIGN.md §46.8): a program installed or made runnable since the start-up check is then found."""
@@ -154,8 +158,9 @@ class VideoService:
         if not inputs:
             raise ValueError("The start picture is no longer there. Add it again and make the clip again.")
         target = self.storage.video_dir(row["id"]) / "start.png"
+        width, height = self.info().make_size(options["width"], options["height"])  # the size the model makes, so that it has nothing to scale; the trim then takes the same middle
         try:
-            prepare_start_picture(self.storage.abs(inputs[0]["path"]), target, options["width"], options["height"])
+            prepare_start_picture(self.storage.abs(inputs[0]["path"]), target, width, height)
         except (OSError, ValueError) as exc:
             raise ValueError(f"The start picture could not be read ({getattr(exc, 'strerror', None) or exc}). Add it again.") from exc
         return self.storage.rel(target)
@@ -169,14 +174,20 @@ class VideoService:
         options = json.loads(row["options_json"])
         raw = self.storage.accept_worker_video(str(event["path"]), run_id)
         ffmpeg, ffprobe = self.settings.video_ffmpeg, self.settings.video_ffprobe
+        info = self.info()
+        asked = (int(options["width"]), int(options["height"]))
+        make = info.make_size(*asked)  # what the model was asked to make: bigger than `asked` for the sizes that are trimmed (DESIGN.md §46.20)
         facts = probe_clip(ffprobe, raw)
-        wrong = check_output(facts, width=options["width"], height=options["height"], frames=options["frames"], fps=options["fps"])
+        wrong = check_output(facts, width=make[0], height=make[1], frames=options["frames"], fps=options["fps"])
         if wrong:
             raise MediaError(wrong)
         folder = self.storage.video_dir(run_id)
         final = folder / "clip.mp4"
-        info = self.info()
-        made = finish_clip(ffmpeg, ffprobe, raw, final, facts=facts, keep_sound=bool(options.get("keep_sound", True)), comment=info.licence.notice, title=" ".join(row["prompt"].split())[:80])
+        made = finish_clip(ffmpeg, ffprobe, raw, final, facts=facts, keep_sound=bool(options.get("keep_sound", True)), comment=info.licence.notice, title=" ".join(row["prompt"].split())[:80],
+                           trim_to=asked if make != asked else None)
+        if (made.width, made.height) != asked:  # the file the studio keeps is the size that was asked for, or it is not kept
+            final.unlink(missing_ok=True)
+            raise MediaError(f"The finished clip is {made.width}x{made.height}; {asked[0]}x{asked[1]} was asked for.")
         raw.unlink(missing_ok=True)
         (folder / "start.png").unlink(missing_ok=True)  # the person's own picture is kept with the run (its inputs); this was the clip's copy of it, made its size
         poster = folder / "poster.jpg"

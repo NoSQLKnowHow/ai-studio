@@ -317,7 +317,7 @@ def test_the_build_check_looks_at_the_python_a_shared_environment_links_to(check
 
 
 def test_with_nothing_set_up_the_build_check_says_so_in_one_line_after_the_facts(check_image, clean_env):
-    notes = check_image.video_notes()
+    notes = check_image.video_program_notes()
     assert notes[-1] == ("Video: no program is set up in this build (STUDIO_VIDEO_LTX_DIR is empty and the LTX environment is not built in: build with VIDEO_LTX=1, or share your clone "
                          "with STUDIO_VIDEO_LTX_DIR); the Video tab will say so")
 
@@ -325,7 +325,7 @@ def test_with_nothing_set_up_the_build_check_says_so_in_one_line_after_the_facts
 def test_a_program_that_cannot_start_and_model_files_that_are_not_there_are_notes_with_their_reasons(check_image, clean_env, tmp_path):
     clean_env.setenv("STUDIO_VIDEO_COMMAND", f"{tmp_path}/no/such/python -m ltx_pipelines.distilled")
     clean_env.setenv("STUDIO_VIDEO_MODELS_DIR", str(tmp_path / "empty"))
-    notes = check_image.video_notes()
+    notes = check_image.video_program_notes()
     assert all(n.startswith("Video: ") for n in notes)
     assert "not available here" in notes[-2] and "no/such/python" in notes[-2]
     assert "model files:" in notes[-1] and "5 of 5 not found" in notes[-1] and "not there" in notes[-1]
@@ -334,7 +334,7 @@ def test_a_program_that_cannot_start_and_model_files_that_are_not_there_are_note
 def test_model_files_that_are_all_there_are_said_to_be_found(check_image, clean_env, tmp_path):
     clean_env.setenv("STUDIO_VIDEO_COMMAND", f"{sys.executable} -m ltx_pipelines.distilled")
     clean_env.setenv("STUDIO_VIDEO_MODELS_DIR", str(models_folder(tmp_path / "models")))
-    notes = check_image.video_notes()
+    notes = check_image.video_program_notes()
     assert notes[-2].startswith("Video: ")  # whichever it finds of this Python (it has no LTX): a line either way
     assert notes[-1] == f"Video: all five model files were found in {tmp_path / 'models'}"
 
@@ -355,9 +355,49 @@ def test_a_clone_that_works_is_said_to_start_with_what_differs_from_the_measured
 def test_the_build_check_never_fails_whatever_goes_wrong_looking(check_image, clean_env, monkeypatch):
     """Protects the promise that the `Video:` lines are notes only: even a settings error or a crash inside the check is one line and not an exception (the build must not fail)."""
     clean_env.setenv("STUDIO_VIDEO_QUANTIZATION", "int3")  # a settings error
-    notes = check_image.video_notes()
+    notes = check_image.video_program_notes()
     assert notes[-1].startswith("Video: could not find out whether the LTX program can run (ConfigError")
     clean_env.delenv("STUDIO_VIDEO_QUANTIZATION")
     monkeypatch.setattr("studio.video.engines.ltx.inspect_environment", lambda command, **kw: (_ for _ in ()).throw(RuntimeError("boom")))
     clean_env.setenv("STUDIO_VIDEO_COMMAND", "/x/python -m ltx_pipelines.distilled")
-    assert check_image.video_notes()[-1] == "Video: could not find out whether the LTX program can run (RuntimeError: boom)"
+    assert check_image.video_program_notes()[-1] == "Video: could not find out whether the LTX program can run (RuntimeError: boom)"
+
+
+# ---------------------------------------------------------------- the H.264 encoder line (DESIGN.md §46.20, criterion 500)
+def fake_ffmpeg(monkeypatch, check_image, listing: str | None, *, installed: bool = True, fails: Exception | None = None):
+    """Make `check_image` see an ffmpeg whose `-encoders` listing is `listing` (or that is not installed, or that cannot be run)."""
+    monkeypatch.setattr(check_image.shutil, "which", lambda name: "/usr/bin/ffmpeg" if installed else None)
+
+    def run(argv, **kwargs):
+        if fails is not None:
+            raise fails
+        assert argv[:3] == ["/usr/bin/ffmpeg", "-hide_banner", "-encoders"]
+        return subprocess.CompletedProcess(argv, 0, stdout=listing or "", stderr="")
+
+    monkeypatch.setattr(check_image.subprocess, "run", run)
+
+
+def test_the_build_check_says_whether_ffmpeg_can_write_h264_which_the_hd_and_scope_sizes_need(check_image, monkeypatch):
+    fake_ffmpeg(monkeypatch, check_image, " V....D libx264              libx264 H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10 (codec h264)\n A....D aac   AAC\n")
+    assert check_image.video_ffmpeg_note() == "Video: ffmpeg has an H.264 encoder (libx264): the HD and Scope sizes can be trimmed to size"
+
+
+def test_an_ffmpeg_without_libx264_is_a_note_that_says_which_sizes_are_affected(check_image, monkeypatch):
+    """`libx264rgb` is another encoder and is not it: a listing that has only that one does not have the encoder the trim needs."""
+    fake_ffmpeg(monkeypatch, check_image, " V....D libx264rgb           libx264 H.264 RGB (codec h264)\n V....D libopenh264   OpenH264\n")
+    note = check_image.video_ffmpeg_note()
+    assert note.startswith("Video: ffmpeg has no H.264 encoder (libx264)") and "HD (1920x1080) and Scope (1920x800)" in note and "other sizes are not affected" in note
+
+
+def test_no_ffmpeg_and_an_ffmpeg_that_cannot_be_asked_are_notes_and_not_exceptions(check_image, monkeypatch):
+    fake_ffmpeg(monkeypatch, check_image, None, installed=False)
+    assert check_image.video_ffmpeg_note() == "Video: ffmpeg is not installed, so no clip can be finished"
+    fake_ffmpeg(monkeypatch, check_image, None, fails=OSError("exec format error"))
+    assert check_image.video_ffmpeg_note().startswith("Video: could not find out whether ffmpeg has an H.264 encoder (OSError: exec format error")
+
+
+def test_the_h264_line_ends_the_video_lines_whether_or_not_a_program_is_set_up(check_image, clean_env, tmp_path):
+    """Last, so that the lines before it are the five the Spark section lists in order; and there with nothing set up as well, because it is true of the image, not of the program."""
+    notes = check_image.video_notes()
+    assert notes[-1].startswith("Video: ffmpeg ") and notes[:-1] == check_image.video_program_notes()
+    assert all(n.startswith("Video: ") for n in notes)

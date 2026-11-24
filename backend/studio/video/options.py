@@ -95,13 +95,13 @@ def check_video(*, prompt: str, sent: set[str], opts: Any, pictures: int, info: 
         width = height = None
     if width is None or height is None:
         width, height = info.size_default
-    else:
+    elif not info.is_trimmed_size(width, height):  # a preset's size that is made bigger and trimmed (HD 1920x1080) is allowed as a pair, and only as that pair (§46.20)
         for name, value in (("width", width), ("height", height)):
             if not info.size_min <= value <= info.size_max:
                 errors.append((("options", name), f"Must be between {info.size_min} and {info.size_max} pixels.", "bad_size"))
             elif value % info.size_multiple:
                 below, above = nearest_multiples(value, info.size_multiple)
-                errors.append((("options", name), f"Must be a multiple of {info.size_multiple}; the nearest are {below} and {above}.", "bad_size"))
+                errors.append((("options", name), f"Must be a multiple of {info.size_multiple}; the nearest are {below} and {above}. (The HD and Scope sizes are the exceptions: they are offered as buttons.)", "bad_size"))
 
     fps = opts.fps if opts.fps is not None else info.fps_choices[0]
     if fps not in info.fps_choices:

@@ -5,8 +5,8 @@ import type { Capabilities, ClipTiming, Progress, VideoEstimateTable, VideoRun }
 import {
   QUALITY_LINE, SOUND_EXAMPLES, VIDEO_FORM_KEY, aboutExact, aboutText, bucketLabel, buildVideoRequest, coverCrop, defaultVideoForm, diskText, estimateClip, estimateFromHistory, estimateSeconds,
   estimateText, formatSeconds, framesFor, lengthBucket, workSeconds,
-  lengthNote, loadVideoForm, madeText, makeLine, pictureChoices, pictureFromChoice, saveVideoForm, sizeForPicture, stageFraction, stageText, videoAnnouncement, videoFacts,
-  videoFormFromRun, videoProblem, videoRetryRequest, videoStatusLabel, videoTitle, workingText, type VideoForm,
+  isTrimmedSize, lengthNote, loadVideoForm, madeText, makeLine, makeSize, pictureChoices, pictureFromChoice, saveVideoForm, sizeForPicture, stageFraction, stageText, videoAnnouncement, videoFacts,
+  sizeAllowed, videoFormFromRun, videoProblem, videoRetryRequest, videoStatusLabel, videoTitle, workingText, type VideoForm,
 } from "./video";
 
 // The Video tab's logic, as pure functions (DESIGN.md §46): every rule here is also a rule on the server, which has the numbers (`capabilities.limits.video`); the page repeats none of
@@ -538,5 +538,89 @@ describe("the fixed words", () => {
   it("tell the person that every clip loads the model first, and the sound examples are only suggestions", () => {
     expect(QUALITY_LINE).toContain("about 45 seconds");
     expect(SOUND_EXAMPLES.length).toBeGreaterThan(0);
+  });
+});
+
+
+// ---------------------------------------------------------------- HD and Scope (DESIGN.md §46.20)
+// The program makes only multiples of 64, so HD 1920×1080 and Scope 1920×800 are made 1920×1088 and 1920×832 and trimmed from the middle by the studio. The server decides which size is made
+// for which (`make_width` and `make_height` in the presets); the page repeats no number, and these tests take every one from the limits the server sent.
+describe("HD and Scope: sizes the program makes a little taller and trims", () => {
+  const SIZE = LIMITS.size;
+  const preset = (id: string) => {
+    const found = SIZE.presets.find((p) => p.id === id);
+    if (!found) throw new Error(`the limits have no preset ${id}`);
+    return found;
+  };
+
+  it("offers both, with the size the program makes for each, and says an ordinary size is made as it is", () => {
+    expect(preset("hd")).toMatchObject({ width: 1920, height: 1080, make_width: 1920, make_height: 1088 });
+    expect(preset("scope")).toMatchObject({ width: 1920, height: 800, make_width: 1920, make_height: 832 });
+    expect(preset("landscape")).toMatchObject({ width: 1280, height: 704, make_width: 1280, make_height: 704 });
+  });
+
+  it("makes the size a preset names, and only for the whole size as a pair (nothing nearby is rounded up)", () => {
+    expect(makeSize(SIZE, 1920, 1080)).toEqual([1920, 1088]);
+    expect(makeSize(SIZE, 1920, 800)).toEqual([1920, 832]);
+    expect(makeSize(SIZE, 1280, 704)).toEqual([1280, 704]);
+    for (const [w, h] of [[1920, 1081], [1080, 1920], [800, 1920], [1856, 800], [1918, 1080], [1920, 1088], [1920, 832]]) {
+      expect(makeSize(SIZE, w, h)).toEqual([w, h]);
+      expect(isTrimmedSize(SIZE, w, h)).toBe(false);
+    }
+    expect(isTrimmedSize(SIZE, 1920, 1080)).toBe(true);
+    expect(isTrimmedSize(SIZE, 1920, 800)).toBe(true);
+    expect(isTrimmedSize(SIZE, 1280, 704)).toBe(false);
+  });
+
+  it("allows a trimmed size as the pair it is, an ordinary size by the old rule, and nothing beside either", () => {
+    expect(sizeAllowed(SIZE, 1920, 1080)).toBe(true);
+    expect(sizeAllowed(SIZE, 1920, 800)).toBe(true);
+    expect(sizeAllowed(SIZE, 1280, 704)).toBe(true);
+    expect(sizeAllowed(SIZE, 1920, 1088)).toBe(true);
+    for (const [w, h] of [[1920, 1081], [1080, 1920], [1856, 800], [1280, 700], [100, 100], [SIZE.max + SIZE.multiple, 704], [1920, 0]]) expect(sizeAllowed(SIZE, w, h)).toBe(false);
+  });
+
+  it("keeps a saved HD size as a pair when the form is loaded, and drops a size beside it a side at a time as before", () => {
+    const hd = loadVideoForm(CAPS, memoryStore({ [VIDEO_FORM_KEY]: JSON.stringify({ width: 1920, height: 1080 }) }));
+    expect([hd.width, hd.height]).toEqual([1920, 1080]);
+    const scope = loadVideoForm(CAPS, memoryStore({ [VIDEO_FORM_KEY]: JSON.stringify({ width: 1920, height: 800 }) }));
+    expect([scope.width, scope.height]).toEqual([1920, 800]);
+    const beside = loadVideoForm(CAPS, memoryStore({ [VIDEO_FORM_KEY]: JSON.stringify({ width: 1920, height: 1081 }) }));
+    expect(beside.height).toBe(defaultVideoForm(CAPS).height);  // 1081 is no size: the default's height
+    // a saved size from before the preset existed is untouched by it
+    expect(loadVideoForm(CAPS, memoryStore({ [VIDEO_FORM_KEY]: JSON.stringify({ width: 1024, height: 576 }) }))).toMatchObject({ width: 1024, height: 576 });
+  });
+
+  it("lets the form be sent at HD and Scope, and says the exceptions in words when another size is not a multiple", () => {
+    expect(videoProblem(form({ width: 1920, height: 1080 }), CAPS, false)).toBeNull();
+    expect(videoProblem(form({ width: 1920, height: 800 }), CAPS, false)).toBeNull();
+    const problem = videoProblem(form({ width: 1920, height: 1081 }), CAPS, false);
+    expect(problem).toContain(`multiples of ${SIZE.multiple}`);
+    expect(problem).toContain("HD and Scope");
+  });
+
+  it("asks the server for the size the person chose, and says nothing of the size the program makes (the server knows it)", () => {
+    const body = buildVideoRequest(form({ width: 1920, height: 1080 }), CAPS, null);
+    expect(body.options).toMatchObject({ width: 1920, height: 1080 });
+    expect(Object.keys(body.options as Record<string, unknown>).filter((k) => k.startsWith("make"))).toEqual([]);
+  });
+
+  it("brings a clip made at HD back into the form whole on Reuse", () => {
+    const old = run({ options: { ...makeVideoRun().options, width: 1920, height: 1080 } });
+    expect(videoFormFromRun(old, CAPS, form({ width: 640, height: 384 }))).toMatchObject({ width: 1920, height: 1080 });
+    const scope = run({ options: { ...makeVideoRun().options, width: 1920, height: 800 } });
+    expect(videoFormFromRun(scope, CAPS, form({ width: 640, height: 384 }))).toMatchObject({ width: 1920, height: 800 });
+  });
+
+  it("counts the size that is made, not the size that is kept, in the time the line above Make clip gives", () => {
+    // a table made so that 4% more or less work is a visible difference in the words: the reference is the size Scope is made at
+    const table: VideoEstimateTable = { points: [[0, 0], [10, 600000]], reference_pixels: 1920 * 832, kind: "measured", source: "a test table", overhead_s: 0, buckets: [5, 10, 20, 30], history: [] };
+    const limits = { ...LIMITS, estimate: table };
+    const made = estimateText(table, 10, 1920, 832, 24);
+    const kept = estimateText(table, 10, 1920, 800, 24);
+    expect(made).not.toBe(kept);  // the test means something only if the two sizes read differently
+    const line = makeLine(form({ seconds: 10, width: 1920, height: 800 }), limits);
+    expect(line).toContain(made as string);
+    expect(line).not.toContain(kept as string);
   });
 });

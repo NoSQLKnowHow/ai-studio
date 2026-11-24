@@ -584,6 +584,88 @@ describe("sound and playing", () => {
   });
 });
 
+describe("HD and Scope (DESIGN.md §46.20)", () => {
+  const answer = () => ({ status: 201, body: queuedRun({ id: "newrun", prompt: "a wide shot" }) });
+  const chip = (name: string) => screen.getByRole("button", { name }) as HTMLButtonElement;
+  const note = () => document.querySelector("[data-note='trimmed']");
+
+  it("offers both next to the other sizes, and the first is the one that was chosen before", () => {
+    panel();
+    expect(chip("1280×704").getAttribute("aria-pressed")).toBe("true");
+    expect(chip("HD 1920×1080").getAttribute("aria-pressed")).toBe("false");
+    expect(chip("Scope 2.40:1 · 1920×800").getAttribute("aria-pressed")).toBe("false");
+    expect(note()).toBeNull();
+    // for a size that is made as it is, the line says the rule and where its two exceptions are
+    expect(screen.getByText(/Each side is a multiple of 64\. 1280×704\. HD and Scope are the exceptions/)).toBeTruthy();
+  });
+
+  it("says, for HD, what the program makes and that the studio trims it, and the custom fields say the same", () => {
+    panel();
+    fireEvent.click(chip("HD 1920×1080"));
+    expect(chip("HD 1920×1080").getAttribute("aria-pressed")).toBe("true");
+    expect(chip("1280×704").getAttribute("aria-pressed")).toBe("false");
+    expect(note()!.textContent).toContain("the program makes 1920×1088");
+    expect(note()!.textContent).toContain("trims the picture to 1920×1080");
+    fireEvent.click(screen.getByText(/Custom size and seed/));
+    expect((screen.getByLabelText("Width") as HTMLInputElement).value).toBe("1920");
+    expect((screen.getByLabelText("Height") as HTMLInputElement).value).toBe("1080");
+    expect(screen.getByText("Trimmed from 1920.")).toBeTruthy();
+    expect(screen.getByText("Trimmed from 1088.")).toBeTruthy();
+    // and going back to a size that is made as it is brings the ordinary words back
+    fireEvent.click(chip("1280×704"));
+    expect(note()).toBeNull();
+    expect(screen.queryByText("Trimmed from 1088.")).toBeNull();
+  });
+
+  it("says the same of Scope", () => {
+    panel();
+    fireEvent.click(chip("Scope 2.40:1 · 1920×800"));
+    expect(note()!.textContent).toContain("the program makes 1920×832");
+    expect(note()!.textContent).toContain("trims the picture to 1920×800");
+  });
+
+  it("sends the size that was chosen and nothing about the size the program makes", async () => {
+    const calls = server(answer);
+    panel();
+    type(prompt(), "a wide shot");
+    fireEvent.click(chip("Scope 2.40:1 · 1920×800"));
+    fireEvent.click(makeButton());
+    await waitFor(() => expect(calls).toHaveLength(1));
+    const options = (calls[0].body as { options: Record<string, unknown> }).options;
+    expect(options).toMatchObject({ width: 1920, height: 800 });
+    expect(Object.keys(options).filter((key) => key.startsWith("make"))).toEqual([]);
+  });
+
+  it("gives each card the size the program makes, so that the time left on a working clip counts that size and not the size that is kept", () => {
+    // a table in which 4% of the work is minutes: 30,000 s for 5 s at 1920×832, the size Scope is made at
+    const estimate = { ...CAPS.limits.video.estimate, points: [[0, 0], [5, 30000]] as [number, number][], reference_pixels: 1920 * 832, overhead_s: 0, history: [] };
+    const caps = { ...CAPS, limits: { ...CAPS.limits, video: { ...CAPS.limits.video, estimate } } };
+    const working = (height: number) => makeVideoRun({
+      status: "running", video: null, finished_at: null, started_at: new Date(NOW - 30_000).toISOString(), progress: { image: 1, of: 1, step: 1, steps: 8, stage: "denoise" },
+      options: { ...makeVideoRun().options, seconds: 5, width: 1920, height, fps: 24 },
+    });
+    const toGo = () => screen.getAllByText(/to go/)[0].textContent;
+    panel({ caps, runs: [working(800)] });  // a Scope clip, which the program is making at 1920×832
+    const scope = toGo();
+    cleanup();
+    panel({ caps, runs: [working(832)] });  // a clip that really is 1920×832
+    expect(toGo()).toBe(scope);  // the same work, so the same time: were the card told the size that is kept, 800 would read shorter
+    cleanup();
+    panel({ caps, runs: [working(704)] });  // and a size that is made as it is is counted as it is
+    expect(toGo()).not.toBe(scope);
+  });
+
+  it("keeps HD as the size of the form when the page is opened again", () => {
+    const first = panel();
+    fireEvent.click(chip("HD 1920×1080"));
+    expect(JSON.parse(first.store.data[VIDEO_FORM_KEY])).toMatchObject({ width: 1920, height: 1080 });
+    first.view.unmount();
+    cleanup();
+    panel({ store: memoryStore({ [VIDEO_FORM_KEY]: first.store.data[VIDEO_FORM_KEY] }) });
+    expect(chip("HD 1920×1080").getAttribute("aria-pressed")).toBe("true");
+  });
+});
+
 describe("the contract's own capability", () => {
   it("is the one these tests are made with: ready, the licence acknowledged, and the test engine", () => {
     expect(VIDEO_CONTRACT.capabilities_video.state).toBe("ready");
