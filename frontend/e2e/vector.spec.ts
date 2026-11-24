@@ -175,7 +175,7 @@ test("the server's answers have exactly the keys the contract lists, so the page
   expect(Object.keys(caps.limits.vector).sort()).toEqual(expect.arrayContaining(Object.keys(CONTRACT.capabilities.limits_vector).sort())); // the page's optional PNG range may be there too
   // the counts have a third tab, each with the same keys as before
   const counts = (await (await page.request.get("/api/runs/counts")).json()) as Record<string, Record<string, number>>;
-  expect(Object.keys(counts).sort()).toEqual(["image", "music", "speech", "vector"]); // (Speech, the fifth tab, since 1.20)
+  expect(Object.keys(counts).sort()).toEqual(["image", "music", "speech", "vector", "video"]); // (Speech, the fifth tab, since 1.20; Video, the sixth, since 1.27)
   for (const tab of ["all", "kept", "deleted"]) expect(counts.vector[tab]).toEqual(expect.any(Number));
   // the history can be asked for the Vector tab's runs alone
   const listed = (await (await page.request.get("/api/runs?kind=vector")).json()) as { runs: ApiRun[] };

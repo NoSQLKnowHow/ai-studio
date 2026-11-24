@@ -186,6 +186,8 @@ class JobManager:
         self._music_probe: dict[str, Any] = {"state": "pending"}
         self._speech_probes: dict[str, dict[str, Any]] = {}  # engine id -> the result of its start-up check (DESIGN.md §38.3)
         self._video_probes: dict[str, dict[str, Any]] = {}  # video engine id -> the result of its start-up check (DESIGN.md §46.6)
+        self._video_check_task: Optional[asyncio.Task] = None  # the check the person asked for again (`recheck_video`), while it runs
+        self._video_check_at: float = -1e9  # when it was last asked for, on the monotonic clock, for the rate limit
         self._unload_at: Optional[float] = None
         # Starting and stopping the worker process happen one at a time: a run starting it, a Load, an Unload and the
         # idle timeout. Without this a click could meet a worker that is half stopped (DESIGN.md §25.3).
@@ -212,10 +214,11 @@ class JobManager:
             flight.cancel()
             with suppress(asyncio.CancelledError, Exception):
                 await flight
-        if self._probe_task is not None:
-            self._probe_task.cancel()
-            with suppress(asyncio.CancelledError):
-                await self._probe_task
+        for check in (self._probe_task, self._video_check_task):
+            if check is not None:
+                check.cancel()
+                with suppress(asyncio.CancelledError):
+                    await check
         for name in ("_uploads_task", "_janitor_task"):
             task = getattr(self, name)
             if task is not None:
@@ -1764,6 +1767,50 @@ class JobManager:
         """Tell every open page that what the server can do changed (the start-up checks finished, or the video licence was acknowledged or withdrawn): each page asks again."""
         self.bus.publish("capabilities.updated", {"supports": self.supports(), "modes": self.modes(), "music": self.music_status(),
                                                   "vector": self.vector_status(), "speech": self.speech_status(), "video": self.video_status()})
+
+    # The fewest seconds between two checks the person asks for: a check imports PyTorch in a process of its own, which takes a while and some memory, and a button that is pressed
+    # again and again must not start one each time. A class attribute so that a test can shorten it.
+    VIDEO_CHECK_SECONDS = 10.0
+
+    def recheck_video(self) -> dict[str, Any]:
+        """Run the video engine's start-up check again, because the person has put something right (a folder shared, a permission changed, a program installed) and must not have to
+        restart the container to find out (DESIGN.md §46.8). The same check as at start-up, in a worker process of its own, off the event loop: this answers at once with `started`
+        and the page learns the outcome from `capabilities.updated`. Settings are not read again (an environment variable changed in .env needs `docker compose up -d`, which makes a new
+        container); what is looked at again is the machine: folders, permissions, files, programs. Raises `VideoRefused` (429 `video_check_too_soon`) inside the rate limit, and
+        (409 `video_busy`) while a clip is being made, which a check could slow down and which needs the memory the check imports PyTorch into."""
+        engine = self.video.engine_id()
+        if self._video_probes.get(engine, {}).get("state") == "checking":
+            return {"started": False, "state": "checking"}  # one is under way already: pressing again asks for nothing new
+        running = self.db.get_run(self._current) if self._current else None
+        if running is not None and running["mode"] == VIDEO:
+            raise VideoRefused(409, "video_busy", "A clip is being made, so the video program cannot be checked now.", "Check again when it is done.")
+        waited = time.monotonic() - self._video_check_at
+        if waited < self.VIDEO_CHECK_SECONDS:
+            raise VideoRefused(429, "video_check_too_soon", f"The video program was checked {waited:.0f} seconds ago.", f"Wait {self.VIDEO_CHECK_SECONDS - waited:.0f} seconds and press it again.")
+        self._video_check_at = time.monotonic()
+        self.video.forget_tools()
+        self._video_probes[engine] = {"state": "checking"}
+        self.publish_capabilities()
+        self._video_check_task = asyncio.create_task(self._run_video_check(engine), name="video-check")
+        return {"started": True, "state": "checking"}
+
+    async def _run_video_check(self, engine_id: str) -> None:
+        """The work of `recheck_video`: the engine's check in its worker process, its outcome kept as the start-up check's is, and every open page told."""
+        try:
+            await asyncio.to_thread(self.video.tools)  # ffmpeg and ffprobe again, off the event loop
+            outcome = await self._probe_video_engine(engine_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # whatever went wrong is the answer, in words: the tab must not stay on "checking" for ever
+            log.exception("the video check failed")
+            outcome = {"ok": False, "error": {"kind": "error", "message": f"The video check could not be run: {exc}", "hint": "See the server's log."}}
+        if outcome.get("ok"):
+            self._video_probes[engine_id] = {"state": "done", "device": outcome.get("device")}
+            log.info("video capability check passed (asked for again)")
+        else:
+            self._video_probes[engine_id] = {"state": "failed", "error": outcome.get("error") or {}}
+            log.warning("video engine %s (asked for again): %s", engine_id, (outcome.get("error") or {}).get("message"))
+        self.publish_capabilities()
 
     async def _probe_video_engine(self, engine_id: str) -> dict[str, Any]:
         """The video engine's start-up check (DESIGN.md §46.6), in a worker process of its own. For the real engine it looks at the files, the program and its environment, which

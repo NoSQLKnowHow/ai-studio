@@ -5,7 +5,7 @@
 #
 # Makes DESTINATION_FOLDER/ai-image-studio-backup-<date>-<time>.tar, a single file you can copy to a
 # NAS or anywhere else. Inside it (an ordinary tar, nothing proprietary):
-#   data.tar.gz      your history, images, prompts and chats (the ./data folder)           always
+#   data.tar.gz      your history, images, prompts, chats and video clips (the ./data folder)  always
 #   image.tar.gz     the Docker image, exactly as built                    unless --no-image
 #   env.backup       your .env settings (may hold a token)                 unless --no-env
 #   model-cache.tar  the studio's models from the Hugging Face cache       unless --no-model
@@ -20,7 +20,7 @@ usage() {
   cat <<'EOF'
 Usage: scripts/backup.sh [options] DESTINATION_FOLDER
 
-Backs up your history, images, prompts and chats (./data), the Docker image, your .env settings and the studio's models
+Backs up your history, images, prompts, chats and video clips (./data), the Docker image, your .env settings and the studio's models
 into a single .tar file, named ai-image-studio-backup-<date>-<time>.tar, inside DESTINATION_FOLDER. The studio
 is stopped for the few seconds it takes to copy the data, then started again; the image and models are
 copied while it runs. The finished .tar is re-read and every checksum checked before it gets its name.
@@ -33,6 +33,11 @@ has been downloaded adds its own size. Nothing else in that cache is touched. An
 model that isn't there (never downloaded, or not in the cache at all) is skipped with a warning that names
 it. A speech model that has not been downloaded yet (each is fetched the first time its engine is used) is
 only noted in the summary, since few people use all of them.
+
+The Video tab's files are treated differently: the clips (data/video) ARE in the backup, and are often the largest part of ./data, so the summary says how much they weigh.
+What is left out of ./data is what can be made again: the intermediates of an unfinished clip (data/video/*/work), the video program's caches (data/video-cache) and the
+audiobook files. The video MODEL files (about 71 GB, the folder STUDIO_VIDEO_MODELS_DIR names, and the LTX-2 folder STUDIO_VIDEO_LTX_DIR) are your own files
+outside the studio, and are never copied: back them up yourself.
 
 Options:
   --no-model     leave out the models (they are included by default)
@@ -180,6 +185,8 @@ PARTIAL_TAR="$DEST/.partial-${STAMP}.tar"   # the .tar, until it has been checke
 
 # ---------------------------------------------------------------- what it will cost
 data_bytes=$(du -sb data | cut -f1)
+# what the clips weigh (without the work folders, which are not backed up): clips are large next to everything else in ./data, so the summary names them (DESIGN.md section 46.9)
+video_bytes=0; [[ -d data/video ]] && video_bytes=$(du -sb --exclude=work data/video | cut -f1)
 image_bytes=0; model_bytes=0; IMAGE_ID=""
 if (( WITH_IMAGE )); then
   IMAGE_ID=$(docker image inspect "$IMAGE" --format '{{.Id}}')
@@ -200,6 +207,13 @@ peak=$(( need + largest ))   # the pieces are moved into the .tar one at a time,
 say "Backing up AI Studio ($REPO)"
 say "  to:      $FINAL"
 say "  data:    yes ($(human "$data_bytes"))"
+if (( video_bytes > 0 )); then
+  say "             - video clips (data/video): $(human "$video_bytes"), in the data piece; the unfinished clips' work folders and the program's cache (data/video-cache) are left out"
+fi
+video_models=$(env_value STUDIO_VIDEO_MODELS_DIR "")
+if (( video_bytes > 0 )) || [[ -n $video_models ]]; then   # said where the Video tab is in use: the 71 GB of model files are the person's own, outside the studio
+  say "             (the video model files are your own and are not copied: back up ${video_models:-the folder STUDIO_VIDEO_MODELS_DIR names} yourself)"
+fi
 say "  image:   $( ((WITH_IMAGE)) && echo "yes ($IMAGE)" || echo no )"
 say "  .env:    $( ((WITH_ENV)) && echo yes || echo no )"
 if (( WITH_MODEL )); then
@@ -238,7 +252,7 @@ if (( DRY )); then
   say ""
   say "Dry run: nothing was changed. It would:"
   (( WAS_RUNNING )) && say "  - stop the studio (docker compose stop $SERVICE)"
-  say "  - pack ./data into data.tar.gz"
+  say "  - pack ./data into data.tar.gz (without data/speech/audiobooks, data/video-cache and the clips' work folders)"
   (( WAS_RUNNING )) && say "  - start the studio again"
   (( WITH_IMAGE )) && say "  - save $IMAGE (docker save | gzip) into image.tar.gz"
   (( WITH_MODEL )) && say "  - pack the models (${MODEL_PATHS[*]}) from $HF_DIR into model-cache.tar"
@@ -284,10 +298,13 @@ if (( WAS_RUNNING )); then
   STOPPED_BY_US=1
   docker compose stop "$SERVICE" >/dev/null
 fi
-say "Packing your history, images, prompts and chats..."
+say "Packing your history, images, prompts, chats and video clips..."
 # data/speech/audiobooks holds the M4B audiobook files that were built on request (DESIGN.md section 44.4). They are made again whenever they are asked for, are kept for a day,
 # and can be larger than the reading's own parts, so they are not backed up. (The size shown in the summary counts them; it can only be too large.)
-tar -czf "$STAGE/data.tar.gz" -C "$REPO" --exclude=data/speech/audiobooks data
+# Two more things are left out for the Video tab (DESIGN.md section 46.9): data/video/*/work, the intermediates of a clip that is not finished (temporary, and bigger than the clip),
+# and data/video-cache, where the video program writes its compiled kernels and downloads (made again as they are needed). The CLIPS themselves, data/video/<run>/clip.mp4 and
+# poster.jpg, are your work and stay in. The model files are not in ./data at all (they are the folder STUDIO_VIDEO_MODELS_DIR names, outside the studio), so nothing here can copy them.
+tar -czf "$STAGE/data.tar.gz" -C "$REPO" --exclude=data/speech/audiobooks --exclude=data/video-cache --exclude='data/video/*/work' data
 if (( STOPPED_BY_US )); then
   docker compose start "$SERVICE" >/dev/null
   STOPPED_BY_US=0

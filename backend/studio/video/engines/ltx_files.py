@@ -67,6 +67,7 @@ def find_one(kind: str, models_dir: Optional[Path], configured: str) -> tuple[Op
     is looked for in the kind's usual folder."""
     setting = SETTINGS[kind]
     set_it = f"Set {setting} to its file name (relative to STUDIO_VIDEO_MODELS_DIR, or a full path)."
+    or_set_it = f"or set {setting} to its file name (relative to STUDIO_VIDEO_MODELS_DIR, or a full path)."  # the same, as the end of a sentence that began with something else
     if configured:
         path = Path(configured).expanduser()
         if not path.is_absolute():
@@ -80,7 +81,7 @@ def find_one(kind: str, models_dir: Optional[Path], configured: str) -> tuple[Op
         return None, FileProblem(kind, f"Where {LABELS[kind]} is kept is not set.", "Set STUDIO_VIDEO_MODELS_DIR to the folder that holds diffusion_models, text_encoders, vae and latent_upscale_models.")
     folder = models_dir / FOLDERS[kind]
     if not folder.is_dir():
-        return None, FileProblem(kind, f"The folder for {LABELS[kind]} is not there: {folder}", f"Check STUDIO_VIDEO_MODELS_DIR, or {set_it}")
+        return None, FileProblem(kind, f"The folder for {LABELS[kind]} is not there: {folder}", f"Check STUDIO_VIDEO_MODELS_DIR, {or_set_it}")
     entries = [p for p in _listing(folder) if not p.name.startswith(".")]
     if kind in ("video_vae", "audio_vae"):  # the folder holds both VAEs: the other one's file is never a candidate, not even as the only file left
         other = WORDS["audio_vae" if kind == "video_vae" else "video_vae"]

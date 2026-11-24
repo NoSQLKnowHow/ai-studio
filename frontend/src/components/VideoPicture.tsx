@@ -42,6 +42,9 @@ export function VideoPicture({ picture, clipWidth, clipHeight, choices, busy, pr
               ? `The clear part is what the clip uses: the picture is cut to ${clipWidth}×${clipHeight} from the middle (never stretched). The shaded edge is left out.`
               : `The picture is the clip's shape, ${clipWidth}×${clipHeight}: all of it is used.`}
           </p>
+          {picture.hasAlpha && (
+            <p className="field-hint" data-note="transparency">This picture has transparency, which a video does not: it is laid on white for the clip.</p>
+          )}
           <button type="button" className="button small ghost danger" data-action="remove-picture" disabled={disabled} onClick={onRemove}><TrashIcon /> Remove the picture</button>
         </div>
       ) : (

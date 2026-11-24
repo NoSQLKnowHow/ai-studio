@@ -71,6 +71,8 @@ export function VideoPanel({
   const [submitting, setSubmitting] = useState(false);
   const [accepting, setAccepting] = useState(false);
   const [licenceProblem, setLicenceProblem] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false); // Check again has been pressed and the server has not yet said it started
+  const [checkProblem, setCheckProblem] = useState<string | null>(null);
   const [said, setSaid] = useState(""); // the polite live region: the state of a clip, said once
 
   useEffect(() => saveVideoForm(form, store), [form, store]);
@@ -122,7 +124,7 @@ export function VideoPanel({
     setPictureProblem(null);
     try {
       const sent = await uploadImage(file).promise;
-      takePicture({ ref: { upload_id: sent.upload_id }, thumbUrl: sent.thumb_url ?? sent.url, width: sent.width, height: sent.height, label: file.name || "a pasted picture" });
+      takePicture({ ref: { upload_id: sent.upload_id }, thumbUrl: sent.thumb_url ?? sent.url, width: sent.width, height: sent.height, label: file.name || "a pasted picture", hasAlpha: sent.has_alpha });
     } catch (error) {
       setPictureProblem(error instanceof ApiError ? error.message : "The picture could not be sent.");
     } finally {
@@ -186,6 +188,20 @@ export function VideoPanel({
       setAccepting(false);
     }
   };
+  // Check again (DESIGN.md §46.8): the server runs the start-up check again and tells every page when it is done (the capabilities change); a refusal is shown in its own words
+  const checkAgain = async () => {
+    setChecking(true);
+    setCheckProblem(null);
+    try {
+      await videoApi.checkAgain();
+      onLicenceChanged();
+    } catch (error) {
+      const err = error as ApiError;
+      setCheckProblem(err.hint ? `${err.message} ${err.hint}` : err.message);
+    } finally {
+      setChecking(false);
+    }
+  };
   const withdrawLicence = async () => {
     try {
       await videoApi.withdrawLicence();
@@ -198,7 +214,7 @@ export function VideoPanel({
   const reuse = (run: VideoRun) => {
     setForm((current) => videoFormFromRun(run, caps, current));
     const start = run.inputs[0];
-    setPicture(run.options.mode === "image" && start ? { ref: { image_id: start.id }, thumbUrl: start.thumb_url ?? start.url, width: start.width, height: start.height, label: run.prompt } : null);
+    setPicture(run.options.mode === "image" && start ? { ref: { image_id: start.id }, thumbUrl: start.thumb_url ?? start.url, width: start.width, height: start.height, label: run.prompt, hasAlpha: start.has_alpha } : null);
     setProblem(null);
     push("info", `Loaded the words and settings. Seed locked to ${run.options.seed}.`);
     window.scrollTo({ top: 0, behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
@@ -218,11 +234,11 @@ export function VideoPanel({
 
   const body: ReactNode = (() => {
     if (!video.available) {
-      const checking = video.state === "checking";
+      const checkingNow = video.state === "checking";
       return (
         <section className="music-form music-unavailable" aria-label="Video is not available">
-          <h2><VideoIcon /> {checking ? "Checking the video program…" : "Video isn't available on this server"}</h2>
-          {checking ? (
+          <h2><VideoIcon /> {checkingNow ? "Checking the video program…" : "Video isn't available on this server"}</h2>
+          {checkingNow ? (
             <p role="status">The studio is checking whether the video program can run here. This tab fills in by itself when it knows.</p>
           ) : (
             <>
@@ -230,6 +246,15 @@ export function VideoPanel({
               {video.hint && <p className="hint">{video.hint}</p>}
             </>
           )}
+          {!checkingNow && (
+            <div className="prompt-row">
+              <p className="prompt-help">Put it right on the Spark (a folder, a permission, a program), then look again: the container need not be restarted for that. A line changed in .env needs docker compose up -d.</p>
+              <div className="prompt-row-end">
+                <button type="button" className="button primary" data-action="check-again" disabled={checking} onClick={() => void checkAgain()}>{checking ? "Checking…" : "Check again"}</button>
+              </div>
+            </div>
+          )}
+          {checkProblem && <p className="form-error" role="alert" data-check-problem>{checkProblem}</p>}
           <p className="hint">Images, music and the other tabs work as usual.</p>
         </section>
       );
@@ -350,7 +375,9 @@ export function VideoPanel({
               {video.licence.accepted && (
                 <> <button type="button" className="link-button" data-action="withdraw-licence" onClick={() => void withdrawLicence()}>Withdraw my acknowledgement of the licence</button></>
               )}
+              {" "}<button type="button" className="link-button" data-action="check-again" disabled={checking} onClick={() => void checkAgain()}>Check the video program again</button>
             </p>
+            {checkProblem && <p className="form-error" role="alert" data-check-problem>{checkProblem}</p>}
             {video.clips_bytes > 0 && <p className="field-hint" data-note="disk">Your clips take {diskText(video.clips_bytes)} on the Spark's disk.</p>}
           </fieldset>
         </section>

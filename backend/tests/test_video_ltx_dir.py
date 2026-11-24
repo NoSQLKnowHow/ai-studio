@@ -153,7 +153,8 @@ def test_the_first_thing_wrong_is_told_first_the_clone_then_the_models_then_the_
     monkeypatch.setenv("FAKE_TORCH_NO_GPU", "1")  # good clone, good models: the environment is what is wrong
     with pytest.raises(PipelineUnavailable) as caught:
         check_ready(EngineConfig(ltx_dir=str(clone), models_dir=good_models, cache_dir=str(tmp_path / "cache")))
-    assert "cannot see the GPU" in caught.value.message and "runtime: nvidia" in caught.value.hint and MEASURED_ON_THE_SPARK["packages"]["torch"] in caught.value.hint
+    assert "cannot see the GPU" in caught.value.message and "docker exec ai-image-studio nvidia-smi" in caught.value.hint and MEASURED_ON_THE_SPARK["packages"]["torch"] in caught.value.hint
+    assert "env | grep -i -E 'cuda|triton|ld_library'" in caught.value.hint  # what to send back
 
 
 @needs_ffmpeg
@@ -256,3 +257,45 @@ def test_a_clip_is_made_by_the_clones_python_in_a_cleaned_environment_with_its_c
     for name, folder in (("TRITON_CACHE_DIR", "triton"), ("TORCHINDUCTOR_CACHE_DIR", "torchinductor"), ("TORCH_HOME", "torch")):
         assert ran["env"][name] == str(cache / folder) and (cache / folder).is_dir(), name
     assert ran["pgid"] == ran["pid"]  # its own process group, as for every program
+
+
+# ---------------------------------------------------------------- the messages, read as the person on the Spark reads them
+def test_the_model_folder_that_is_not_set_is_one_message_and_not_five(tmp_path):
+    with pytest.raises(PipelineUnavailable) as caught:
+        check_model_files(EngineConfig())
+    assert caught.value.message == "The folder of model files is not set." and "STUDIO_VIDEO_MODELS_DIR" in caught.value.hint and "docker compose up -d" in caught.value.hint
+    assert "Where the" not in caught.value.hint  # the five per-file lines this used to run together
+
+
+def test_a_model_folder_that_is_one_level_off_says_what_it_holds_and_what_it_must_contain(tmp_path):
+    (tmp_path / "ltx-experiment" / "models").mkdir(parents=True)
+    (tmp_path / "ltx-experiment" / "LTX-2").mkdir()
+    with pytest.raises(PipelineUnavailable) as caught:  # STUDIO_VIDEO_MODELS_DIR pointing at the parent of the models folder
+        check_model_files(EngineConfig(models_dir=str(tmp_path / "ltx-experiment")))
+    assert "holds none of diffusion_models" in caught.value.message and "it holds: LTX-2, models" in caught.value.message
+    assert "CONTAINS those folders" in caught.value.hint
+
+
+def test_the_several_files_wrong_at_once_are_one_message_and_the_rest_named_after_it(tmp_path):
+    models = models_folder(tmp_path / "models")
+    (models / "text_encoders" / "gemma_12b_it.safetensors").unlink()
+    (models / "latent_upscale_models" / "ltx-spatial-upscaler-x2.safetensors").unlink()
+    with pytest.raises(PipelineUnavailable) as caught:
+        check_model_files(EngineConfig(models_dir=str(models)))
+    assert "text encoder" in caught.value.message and "STUDIO_VIDEO_TEXT_ENCODER" in caught.value.hint
+    assert "Also wrong: No file for the spatial upsampler" in caught.value.hint
+    assert ", Set " not in caught.value.hint  # (the sentence that once began with a capital in the middle of a line)
+
+
+def test_a_user_the_container_has_no_name_for_is_said_by_its_numbers(monkeypatch):
+    monkeypatch.setattr(ltx.pwd, "getpwuid", lambda uid: (_ for _ in ()).throw(KeyError(uid)))
+    assert who() == f"uid {os.getuid()}, gid {os.getgid()}"
+    monkeypatch.undo()
+    assert "(uid " in who() or who().startswith("uid ")
+
+
+def test_every_problem_with_the_environment_says_what_to_run_or_what_to_send_back():
+    """Protects the wording a person reads on the Video tab: each of these ends in a command or an action, not in 'see the log'."""
+    for problem in (ltx.REBUILD_HINT, ltx.NOT_SET_UP_HINT):
+        assert "uv sync" in problem or "STUDIO_VIDEO_LTX_DIR" in problem
+    assert "Check again" in ltx.REBUILD_HINT and "docker compose up -d" in ltx.NOT_SET_UP_HINT

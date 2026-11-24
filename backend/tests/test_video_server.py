@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import dataclasses
 import io
+import json
 import re
 import time
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -15,6 +17,7 @@ from PIL import Image
 from video_support import accept_licence, create_clip, record_events, wait_for_video_probe
 
 from studio import sysinfo
+from studio.jobs import JobManager
 from studio.serialize import parse_ts
 from studio.config import Settings
 from studio.video import media
@@ -65,6 +68,7 @@ def test_when_the_engine_cannot_run_the_tab_says_why_and_no_clip_is_accepted(cli
 
 def test_a_request_while_the_engine_is_still_being_checked_is_told_to_wait(client_factory):
     client = client_factory(quiet=True)
+    wait_for_video_probe(client)  # the real start-up check must be over first: on a busy machine it would finish after the line below and put its own answer over the one this test sets
     jobs = client.app.state.jobs
     jobs._video_probes = {"fake": {"state": "checking"}}  # as the first moments after start-up are
     accept_licence(client)
@@ -120,6 +124,17 @@ def test_a_licence_that_changed_is_asked_for_again_and_says_why(video, monkeypat
     assert create_clip(video, expect=409)["code"] == "licence_not_accepted"
     assert video.post("/api/video/licence", json={"accept": True, "revision": "fake-2"}).json()["accepted"] is True
     wait_for(video, create_clip(video)["id"])
+
+
+def test_an_acknowledgement_of_another_licence_with_the_same_revision_does_not_count(video, monkeypatch):
+    """The acknowledgement is of one licence (its name) at one revision: a model whose licence is another one is not covered by what was read for this one, even if the two happen to
+    be at the same revision (DESIGN.md §46.7). The revision alone would say yes."""
+    assert video.get("/api/capabilities").json()["video"]["licence"]["accepted"] is True  # the fixture acknowledged the fake engine's licence
+    other = dataclasses.replace(INFO, licence=dataclasses.replace(INFO.licence, name="Another licence entirely"))
+    monkeypatch.setattr(FakeVideo, "INFO", other)
+    licence = video.get("/api/capabilities").json()["video"]["licence"]
+    assert licence["revision"] == INFO.licence.revision and licence["accepted"] is False
+    assert create_clip(video, expect=409)["code"] == "licence_not_accepted"
 
 
 # ---------------------------------------------------------------- a clip, from request to files
@@ -512,6 +527,21 @@ def test_the_estimate_carries_the_times_of_the_clips_made_here_newest_first_and_
     assert history[0]["took"] == pytest.approx(seconds(second), abs=0.06) and history[1]["took"] == pytest.approx(seconds(first), abs=0.06)
 
 
+def test_the_estimate_goes_by_the_last_forty_clips_and_no_more(video):
+    """DESIGN.md §46.8: the page needs the recent clips, not every clip there has ever been (a machine's speed changes: a new driver, natten); the server sends the last 40, newest first."""
+    base = parse_ts(wait_for(video, create_clip(video, "one real clip")["id"])["finished_at"])
+    with video.app.state.db.tx() as c:
+        for n in range(45):  # 45 more clips that took n + 1 seconds each, finished one second apart after the real one
+            finished = (base + timedelta(seconds=n + 1)).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+            started = base.strftime("%Y-%m-%dT%H:%M:%S.000Z")  # all started when the real one finished, so that clip n took n + 1 seconds
+            c.execute("INSERT INTO runs (id, created_at, started_at, finished_at, status, mode, prompt, effective_prompt, steps, seed, num_images, model_id, options_json, width, height) "
+                      "VALUES (?, ?, ?, ?, 'done', 'video', 'p', 'p', 8, 1, 1, 'fake-video · distilled', ?, 256, 128)",
+                      (f"{n:032x}", started, started, finished, json.dumps({"seconds": 1.0, "width": 256, "height": 128, "fps": 24}),))
+    history = estimate_of(video)["history"]
+    assert len(history) == 40
+    assert [h["took"] for h in history][:3] == [45.0, 44.0, 43.0] and history[-1]["took"] == 6.0  # the newest forty of the 46, the newest first
+
+
 def test_a_clip_in_the_bin_still_counts_but_a_clip_of_another_engine_does_not(video):
     done = wait_for(video, create_clip(video, "binned")["id"])
     video.post(f"/api/runs/{done['id']}/bin")
@@ -528,3 +558,197 @@ def test_a_finished_clip_tells_every_open_page_so_that_each_estimates_from_it(vi
     seen.clear()
     wait_for(video, create_clip(video, "fails [fake:error]")["id"])
     assert not [data for event, data in seen if event == "capabilities.updated"]  # a failure measured nothing
+
+
+# ---------------------------------------------------------------- Check again (DESIGN.md §46.8, phase 2)
+@pytest.fixture
+def broken(client_factory, monkeypatch):
+    """A server whose video program cannot be found (the fake engine's way of saying so), after its start-up check has finished: the state a person is in before they put something right."""
+    monkeypatch.setenv("STUDIO_FAKE_VIDEO_UNAVAILABLE", "1")
+    client = client_factory(quiet=True)
+    assert wait_for_video_probe(client)["state"] == "unavailable"
+    monkeypatch.setattr(JobManager, "VIDEO_CHECK_SECONDS", 0.0)  # (the rate limit has its own test)
+    return client
+
+
+def test_check_again_finds_what_was_put_right_without_a_restart_and_tells_every_open_page(broken, monkeypatch):
+    seen = record_events(broken)
+    monkeypatch.delenv("STUDIO_FAKE_VIDEO_UNAVAILABLE")  # the person has fixed it
+    started = broken.post("/api/video/check")
+    assert started.status_code == 202 and started.json() == {"started": True, "state": "checking"}
+    assert broken.get("/api/capabilities").json()["video"]["state"] in ("checking", "ready")  # it says so while it looks, and the tab is not offered a form for it
+    caps = wait_for_video_probe(broken)
+    assert caps["state"] == "ready" and caps["available"] is True and caps["reason"] is None
+    assert "video" in broken.get("/api/capabilities").json()["modes"]
+    updates = [data["video"]["state"] for event, data in seen if event == "capabilities.updated"]
+    assert updates[0] == "checking" and updates[-1] == "ready"  # the pages heard when it began and when it ended
+    accept_licence(broken)
+    assert wait_for(broken, create_clip(broken)["id"])["status"] == "done"  # and a clip can be made now
+
+
+def test_check_again_that_finds_it_still_wrong_says_the_same_reason_and_does_not_hang_on_checking(broken):
+    reason = broken.get("/api/capabilities").json()["video"]["reason"]
+    assert broken.post("/api/video/check").status_code == 202
+    caps = wait_for_video_probe(broken)
+    assert caps["state"] == "unavailable" and caps["reason"] == reason and caps["available"] is False
+
+
+def test_pressing_it_again_inside_the_limit_is_a_429_in_words_and_after_it_is_allowed(broken, monkeypatch):
+    monkeypatch.setattr(JobManager, "VIDEO_CHECK_SECONDS", 3600.0)
+    assert broken.post("/api/video/check").status_code == 202
+    wait_for_video_probe(broken)
+    again = broken.post("/api/video/check")
+    assert again.status_code == 429 and again.json()["code"] == "video_check_too_soon"
+    assert "was checked" in again.json()["detail"] and "Wait" in again.json()["hint"]
+    monkeypatch.setattr(JobManager, "VIDEO_CHECK_SECONDS", 0.0)
+    assert broken.post("/api/video/check").status_code == 202
+
+
+def test_a_check_that_is_under_way_is_not_started_twice(broken):
+    broken.app.state.jobs._video_probes["fake"] = {"state": "checking"}  # as it is while the first press (or the start-up check) is still looking
+    answer = broken.post("/api/video/check")
+    assert answer.status_code == 202 and answer.json() == {"started": False, "state": "checking"}
+
+
+def test_a_check_is_refused_while_a_clip_is_being_made(video):
+    video.app.state.jobs.VIDEO_CHECK_SECONDS = 0.0
+    running = create_clip(video, "slow [fake:slow]")
+    deadline = time.monotonic() + 10
+    while video.get(f"/api/runs/{running['id']}").json()["status"] != "running" and time.monotonic() < deadline:
+        time.sleep(0.02)
+    refused = video.post("/api/video/check")
+    assert refused.status_code == 409 and refused.json()["code"] == "video_busy" and refused.json()["hint"] == "Check again when it is done."
+    video.post(f"/api/runs/{running['id']}/cancel")
+    wait_for(video, running["id"])
+    assert video.post("/api/video/check").status_code == 202  # and when it is done, it is allowed
+
+
+def test_a_check_looks_for_ffmpeg_again(broken, monkeypatch):
+    """A program installed or made runnable since the start-up check is found: the answer about ffmpeg is not kept for ever."""
+    monkeypatch.delenv("STUDIO_FAKE_VIDEO_UNAVAILABLE")
+    jobs = broken.app.state.jobs
+    jobs.video._tools = media.Tools(ffmpeg=False, ffprobe=False)  # what the start-up check found, before it was installed
+    assert broken.get("/api/capabilities").json()["video"]["tools"] == {"ffmpeg": False, "ffprobe": False}
+    broken.post("/api/video/check")
+    caps = wait_for_video_probe(broken)
+    assert caps["tools"] == {"ffmpeg": True, "ffprobe": True} and caps["available"] is True
+
+
+def test_a_check_that_itself_goes_wrong_ends_in_words_and_not_in_checking_for_ever(broken, monkeypatch):
+    async def explode(self, engine_id):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(JobManager, "_probe_video_engine", explode)
+    broken.post("/api/video/check")
+    caps = wait_for_video_probe(broken)
+    assert caps["state"] == "unavailable" and caps["reason"] == "The video check could not be run: boom" and caps["hint"] == "See the server's log."
+
+
+# ---------------------------------------------------------------- what is NOT in 1.27 (DESIGN.md §46.16): each is absent from the API, not only from the page
+def test_final_quality_is_not_offered_or_accepted(video):
+    caps = video.get("/api/capabilities").json()
+    assert [q["id"] for q in caps["video"]["qualities"] if q["available"]] == ["draft"]
+    assert caps["limits"]["video"]["qualities"] == {"default": "draft", "offered": ["draft"]}
+    refused = video.post("/api/runs", json=clip_body_with(quality="final"))
+    assert refused.status_code == 422 and refused.json()["detail"][0]["loc"] == ["body", "options", "quality"] and "not offered" in refused.json()["detail"][0]["msg"]
+    assert video.post("/api/model/load", json={"model": "video", "variant": "dev"}).status_code in (200, 202)  # (the test engine has a second variant; the real one has only `distilled`)
+    assert media_variants() == ("distilled",)  # the real engine knows no dev checkpoint, so the page can never be offered one
+
+
+def test_an_end_picture_a_chain_of_clips_and_the_programs_chunked_mode_are_not_offered(video):
+    limits = video.get("/api/capabilities").json()["limits"]["video"]
+    assert limits["images"] == {"start": 1, "end": 0}  # one start picture, no end picture
+    assert video.get("/api/capabilities").json()["video"]["chaining"]["available"] is False
+    refused = video.post("/api/runs", json=clip_body_with(segments=3))
+    assert refused.status_code == 422 and refused.json()["detail"][0]["loc"] == ["body", "options", "segments"]
+    one, two = stage(video, image_bytes()), stage(video, image_bytes((9, 9, 9)))
+    both = video.post("/api/runs", json={**clip_body_with(), "input_images": [{"upload_id": one["upload_id"]}, {"upload_id": two["upload_id"]}]})
+    assert both.status_code == 422 and both.json()["detail"][0]["type"] == "too_many_images"  # a second picture would be an end picture
+    # an option of a later release is refused by name (the request model forbids what it does not know), not ignored and not stored
+    for name, value in (("end", {"image": 2}), ("continued_from", "x"), ("chunked", True), ("captions", True)):
+        answer = video.post("/api/runs", json=clip_body_with(**{name: value}))
+        assert answer.status_code == 422, name
+        assert answer.json()["detail"][0]["type"] == "extra_forbidden" and answer.json()["detail"][0]["loc"] == ["body", "options", name]
+    assert video.get("/api/runs?kind=video").json()["runs"] == []  # nothing was queued by any of the refusals
+
+
+def test_the_program_is_never_run_in_chunked_mode_unless_the_person_asked_for_it_in_the_extra_arguments(tmp_path):
+    from studio.video.engines.ltx import build_command
+    from video_support import models_folder, program_config, request
+    from studio.video.engines.ltx_files import find_files
+
+    config = program_config(models_folder(tmp_path / "models"))
+    files, _ = find_files(config.models_path(), config.files)
+    argv = build_command(("python", "-m", "ltx_pipelines.distilled"), config, files, request(tmp_path / "o.mp4"))
+    assert "--chunked" not in argv and "--quantization" not in argv and "--offload" not in argv  # only what the settings ask for
+    asked = build_command(("python", "-m", "ltx_pipelines.distilled"), program_config(models_folder(tmp_path / "m2"), extra_args=("--chunked",)), files, request(tmp_path / "o.mp4"))
+    assert asked[-1] == "--chunked"  # and then last, as the person wrote it
+
+
+def clip_body_with(**options):
+    return {"mode": "video", "prompt": "a fox", "options": {"width": 256, "height": 128, "seconds": 1, **options}}
+
+
+def media_variants() -> tuple:
+    from studio.video import registry
+
+    return registry.info("ltx").variants
+
+
+# ---------------------------------------------------------------- retention: a clip expires like a picture, and kept ones never do (DESIGN.md §46.9)
+def aged(client, *run_ids, created="2020-01-01T00:00:00.000Z", deleted_at=None):
+    with client.app.state.db.tx() as c:
+        for run_id in run_ids:
+            c.execute("UPDATE runs SET created_at=?, deleted_at=? WHERE id=?", (created, deleted_at, run_id))
+
+
+def test_a_clip_expires_after_the_retention_days_unless_it_is_kept_or_filed_and_waits_in_the_bin_before_it_goes(client_factory):
+    client = client_factory(quiet=True, retention_days=30, bin_days=7)
+    wait_for_video_probe(client)
+    accept_licence(client)
+    root = client.app.state.storage.root
+    plain, kept, filed, fresh = (wait_for(client, create_clip(client, name)["id"]) for name in ("plain", "kept", "filed", "fresh"))
+    client.patch(f"/api/runs/{kept['id']}", json={"pinned": True})
+    project = client.post("/api/projects", json={"name": "Foxes"}).json()
+    client.put(f"/api/runs/{filed['id']}/project", json={"project_id": project["id"]})
+    aged(client, plain["id"], kept["id"], filed["id"])  # three clips made long ago; the fourth is new
+    assert client.portal.call(client.app.state.jobs.sweep_expired) == 0  # nothing is deleted for good yet: the old plain clip goes to the bin
+    state = {name: client.get(f"/api/runs/{run['id']}").json()["deleted_at"] is not None for name, run in (("plain", plain), ("kept", kept), ("filed", filed), ("fresh", fresh))}
+    assert state == {"plain": True, "kept": False, "filed": False, "fresh": False}
+    assert (root / "video" / plain["id"] / "clip.mp4").is_file()  # in the bin its files stay, so that Restore works
+    aged(client, plain["id"], deleted_at="2020-01-02T00:00:00.000Z")  # and it has been there for longer than the bin keeps things
+    assert client.portal.call(client.app.state.jobs.sweep_expired) == 1
+    assert client.get(f"/api/runs/{plain['id']}").status_code == 404
+    assert not (root / "video" / plain["id"]).exists() and not (root / "thumbs" / plain["id"]).exists()  # every file of it, through the one place files go
+    for survivor in (kept, filed, fresh):
+        assert (root / "video" / survivor["id"] / "clip.mp4").is_file()
+
+
+def test_with_retention_switched_off_no_clip_ever_expires(client_factory):
+    client = client_factory(quiet=True, retention_days=0)
+    wait_for_video_probe(client)
+    accept_licence(client)
+    run = wait_for(client, create_clip(client)["id"])
+    aged(client, run["id"])
+    client.portal.call(client.app.state.jobs.sweep_expired)
+    assert client.get(f"/api/runs/{run['id']}").json()["deleted_at"] is None
+    assert run["expires_at"] is None or run["expires_at"] > "2020"  # (it also says so on the card: nothing to warn about)
+
+
+def test_a_restored_clip_plays_again_and_is_not_swept_at_once(video):
+    run = wait_for(video, create_clip(video)["id"])
+    video.post(f"/api/runs/{run['id']}/bin")
+    assert video.get(run["video"]["url"]).status_code == 404
+    restored = video.post(f"/api/runs/{run['id']}/restore")
+    assert restored.status_code == 200 and restored.json()["deleted_at"] is None
+    assert video.get(run["video"]["url"]).status_code == 200
+
+
+def test_a_clip_whose_sound_and_picture_differ_by_more_than_a_tenth_of_a_second_carries_the_note_and_is_still_a_finished_clip(video, monkeypatch):
+    """Criterion 487: the file is finished and playable; the note is for the person. (The fake engine's sound is 30 ms short, which gets none: the test below the rule is in test_video_fake_engine.)"""
+    plain = wait_for(video, create_clip(video)["id"])
+    assert plain["video"]["note"] is None  # the fake engine's own few ms are how the file is made
+    monkeypatch.setattr("studio.video.service.sync_note", lambda facts: "The sound and the picture differ by 250 ms: the sound stops early.")
+    noted = wait_for(video, create_clip(video, "noted")["id"])
+    assert noted["status"] == "done" and noted["video"]["note"] == "The sound and the picture differ by 250 ms: the sound stops early."
+    assert video.get(noted["video"]["url"]).status_code == 200

@@ -90,6 +90,49 @@ describe("when the video program cannot run here", () => {
   });
 });
 
+describe("Check again (DESIGN.md §46.8)", () => {
+  const unavailable = () => capsWith({ available: false, state: "unavailable", reason: "The LTX-2 folder is not there: /home/YOU/ltx-experiment/LTX-2.", hint: "Check the path in .env." });
+
+  it("is offered where the tab says why it cannot work, asks the server to look again and has the page read the capabilities again", async () => {
+    const calls = server(() => ({ status: 202, body: { started: true, state: "checking" } }));
+    const { onLicenceChanged } = panel({ caps: unavailable() });
+    expect(screen.getByText(/Put it right on the Spark/)).toBeTruthy();
+    expect(screen.getByText(/A line changed in .env needs docker compose up -d/)).toBeTruthy(); // what a look again cannot do
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    await waitFor(() => expect(onLicenceChanged).toHaveBeenCalledTimes(1));
+    expect(calls).toEqual([{ url: "/api/video/check", method: "POST", body: null }]);
+  });
+
+  it("shows the server's words when it is too soon or a clip is being made, and does not say it started", async () => {
+    server(() => ({ status: 429, body: { detail: "The video program was checked 3 seconds ago.", code: "video_check_too_soon", hint: "Wait 7 seconds and press it again." } }));
+    const { onLicenceChanged } = panel({ caps: unavailable() });
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("The video program was checked 3 seconds ago. Wait 7 seconds and press it again.");
+    expect(onLicenceChanged).not.toHaveBeenCalled();
+  });
+
+  it("is not offered while the program is being checked (the tab fills in by itself), and takes no second press while its request is on the way", async () => {
+    panel({ caps: capsWith({ available: false, state: "checking", reason: "The video program is still being checked." }) });
+    expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
+    cleanup();
+    let release: (value: unknown) => void = () => undefined;
+    const calls = server(() => ({ status: 202, body: {} }));
+    vi.stubGlobal("fetch", vi.fn(async () => { calls.push({ url: "x", method: "POST", body: null }); await new Promise((resolve) => { release = resolve; }); return new Response("{}", { status: 202 }); }));
+    panel({ caps: unavailable() });
+    fireEvent.click(screen.getByRole("button", { name: "Check again" }));
+    expect((await screen.findByRole("button", { name: "Checking…" }) as HTMLButtonElement).disabled).toBe(true);
+    release(null);
+  });
+
+  it("is also on the form's own line when the tab works, so that a fix made after a failed clip can be looked at", async () => {
+    const calls = server(() => ({ status: 202, body: { started: true, state: "checking" } }));
+    const { onLicenceChanged } = panel();
+    fireEvent.click(screen.getByRole("button", { name: "Check the video program again" }));
+    await waitFor(() => expect(onLicenceChanged).toHaveBeenCalledTimes(1));
+    expect(calls[0].url).toBe("/api/video/check");
+  });
+});
+
 describe("the licence (DESIGN.md §46.7)", () => {
   const unaccepted = () => capsWith({}, { accepted: false, accepted_at: null });
 
@@ -214,6 +257,17 @@ describe("the form", () => {
   });
 });
 
+describe("what is not in 1.27 is not on the form (DESIGN.md §46.16)", () => {
+  it("offers no Final quality, no end picture, no joining of clips, no chunked mode and no captions", () => {
+    panel();
+    const form = document.querySelector("[data-video-form]") as HTMLElement;
+    const names = [...form.querySelectorAll("button, input, select, textarea, [role='radio'], summary, label")].map((el) => `${el.textContent} ${el.getAttribute("aria-label") ?? ""}`.toLowerCase()).join("\n");
+    for (const word of ["final", "end picture", "last frame", "continue from", "chain", "chunk", "caption", "subtitle", "quantiz", "offload"]) expect(names, word).not.toContain(word);
+    expect(form.textContent).toContain("Quality: Draft, the distilled model"); // the one quality, said as what it is
+    expect(screen.queryByRole("radio", { name: /final/i })).toBeNull();
+  });
+});
+
 describe("Make clip", () => {
   const answer = () => ({ status: 201, body: queuedRun({ id: "newrun", prompt: "a fox in the snow" }) });
 
@@ -323,6 +377,22 @@ describe("Image to video", () => {
     fireEvent.click(makeButton());
     await waitFor(() => expect(calls).toHaveLength(2));
     expect((calls[1].body as { input_images: unknown[] }).input_images).toEqual([{ image_id: "kept1" }]);
+  });
+
+  it("says that a picture with transparency is laid on white for the clip, and says nothing for one without", async () => {
+    upload({ has_alpha: true });
+    panel();
+    toImageMode();
+    fireEvent.change(screen.getByLabelText("Upload a start picture"), { target: { files: [image()] } });
+    await screen.findByAltText(/The start picture/);
+    expect(document.querySelector("[data-note='transparency']")!.textContent).toBe("This picture has transparency, which a video does not: it is laid on white for the clip.");
+    cleanup();
+    upload({ has_alpha: false });
+    panel();
+    toImageMode();
+    fireEvent.change(screen.getByLabelText("Upload a start picture"), { target: { files: [image()] } });
+    await screen.findByAltText(/The start picture/);
+    expect(document.querySelector("[data-note='transparency']")).toBeNull();
   });
 
   it("follows the picture's shape: a square one gives a square clip", async () => {

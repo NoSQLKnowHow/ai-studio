@@ -215,10 +215,13 @@ def test_the_old_check_on_mode_is_gone_but_the_others_remain(tmp_path):
     make_v2(path)
     db = Database(path)
     try:
+        # "video" was the example of a mode that does not exist when this test was written; since 1.27 (schema 14) it does, so the example is a mode that no release has: the check on
+        # `mode` is still there, with the list of the modes there are (DESIGN.md §46.9), and a mode that is not on it is refused
         with pytest.raises(sqlite3.IntegrityError):
-            db.insert_run(music_run("f" * 32, mode="video"), cap=10)
+            db.insert_run(music_run("f" * 32, mode="hologram"), cap=10)
         with pytest.raises(sqlite3.IntegrityError):
             db.insert_run(music_run("f" * 32, status="sleeping"), cap=10)
+        assert db.insert_run(music_run("0" * 32, mode="video"), cap=10) == "ok"  # and the 1.27 mode is on the list, in a database that was upgraded from schema 2
     finally:
         db.close()
 

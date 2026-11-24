@@ -4,6 +4,7 @@ program says (the stages and the step counts), and fail, run out of memory, be s
 
 from __future__ import annotations
 
+import dataclasses
 import re
 import threading
 import time
@@ -181,3 +182,85 @@ def test_no_code_names_an_engine_outside_the_registry_and_the_engine_files():
                     offenders.append(f"{path.relative_to(REPO)}:{number}: {line.strip()[:80]}")
     assert not offenders, "\n".join(offenders)
     assert ltx.INFO.id == "ltx"
+
+
+# ---------------------------------------------------------------- the sound and the picture agree (DESIGN.md §46.13 criterion 487)
+def make_mp4(path, picture_seconds, sound_seconds):
+    """A real H.264 and AAC file made by ffmpeg whose sound is `sound_seconds` long and whose picture is `picture_seconds`: the sound is cut or padded to the length asked for."""
+    import subprocess
+
+    done = subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"testsrc2=s=128x64:r=24:d={picture_seconds}", "-f", "lavfi", "-i", f"sine=frequency=300:sample_rate=48000:duration={sound_seconds}",
+                           "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-t", str(max(picture_seconds, sound_seconds)), str(path)], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+
+
+@pytest.mark.skipif(not media.find_tools().ok, reason="ffmpeg and ffprobe are not installed here")
+@pytest.mark.parametrize("picture, sound, noted", [(5.0, 4.969, False), (5.0, 4.955, False), (5.0, 5.0, False), (5.0, 4.8, True), (5.0, 5.4, True)])
+def test_a_clip_whose_sound_is_much_shorter_or_longer_than_its_picture_gets_a_note_and_the_few_ms_the_real_program_leaves_do_not(tmp_path, picture, sound, noted):
+    """The real program's sound is 31 ms short at 5 s and 30 s and 45 ms at the tiny size (MEASURED): nothing is said of that. A sound 200 ms short or 400 ms long is."""
+    path = tmp_path / "c.mp4"
+    make_mp4(path, picture, sound)
+    facts = media.probe_clip("ffprobe", path)
+    assert facts.audio_seconds is not None
+    note = media.sync_note(facts)
+    assert (note is not None) is noted, (facts.seconds, facts.audio_seconds, note)
+    if noted:
+        assert note.startswith("The sound and the picture differ by ") and (" ms: the sound stops early." in note or " ms: the sound runs on after the picture." in note)
+
+
+def test_no_sound_or_no_length_is_never_a_sync_note():
+    facts = media.ClipFacts(width=1, height=1, fps=24.0, frames=24, seconds=1.0, video_codec="h264", pixel_format="yuv420p", has_audio=False, audio_codec=None, audio_channels=None,
+                            audio_rate=None, bytes=1)
+    assert media.sync_note(facts) is None
+    assert media.sync_note(dataclasses.replace(facts, has_audio=True, audio_seconds=None)) is None
+    assert media.sync_note(dataclasses.replace(facts, has_audio=True, audio_seconds=2.0)) is not None  # (but a known, far-off length is)
+    assert media.SYNC_TOLERANCE_MS == 100
+
+
+def test_a_start_picture_with_transparency_is_laid_on_white_and_cut_to_the_clips_shape_from_the_middle(tmp_path):
+    """DESIGN.md §46.13 criterion 490: the picture handed to the program is exactly the clip's size, cover-cropped, RGB; transparency is flattened on white (the form says so)."""
+    source, target = tmp_path / "in.png", tmp_path / "out.png"
+    picture = Image.new("RGBA", (200, 100), (0, 0, 0, 0))  # fully transparent, with an opaque red square in the middle
+    picture.paste((255, 0, 0, 255), (75, 25, 125, 75))
+    picture.save(source)
+    media.prepare_start_picture(source, target, 128, 128)  # a square clip from a 2:1 picture: the sides are cut, nothing is stretched
+    with Image.open(target) as made:
+        assert made.mode == "RGB" and made.size == (128, 128)
+        assert made.getpixel((2, 2)) == (255, 255, 255)  # transparent became white, not black
+        assert made.getpixel((64, 64))[0] > 240 and made.getpixel((64, 64))[1] < 20  # the red square is in the middle
+    plain = Image.new("RGB", (64, 64), (10, 20, 30))
+    plain.save(source)
+    media.prepare_start_picture(source, target, 64, 64)
+    with Image.open(target) as made:
+        assert made.mode == "RGB" and made.getpixel((5, 5)) == (10, 20, 30)
+
+
+# ---------------------------------------------------------------- the check of a file an engine wrote (DESIGN.md §46.8)
+def facts_of(width: int, height: int, seconds: float) -> "media.ClipFacts":
+    return media.ClipFacts(width=width, height=height, fps=24.0, frames=round(seconds * 24), seconds=seconds, video_codec="h264", pixel_format="yuv420p", has_audio=True, audio_codec="aac",
+                           audio_channels=2, audio_rate=48000, bytes=1000, audio_seconds=seconds)
+
+
+def test_a_clip_of_the_size_and_about_the_length_asked_for_is_accepted():
+    assert media.check_output(facts_of(1280, 704, 10.0), width=1280, height=704, frames=241, fps=24) is None  # 241 frames at 24 a second is 10.04 s
+    assert media.check_output(facts_of(1280, 704, 10.5), width=1280, height=704, frames=241, fps=24) is None  # inside the 5% (0.5 s) that is allowed
+
+
+@pytest.mark.parametrize("width, height", [(640, 352), (1280, 700), (704, 1280)])
+def test_a_clip_of_another_size_than_asked_for_is_refused_in_words_that_name_both_sizes(width, height):
+    said = media.check_output(facts_of(width, height, 10.0), width=1280, height=704, frames=241, fps=24)
+    assert said == f"The program wrote a {width}x{height} clip; 1280x704 was asked for."  # the size is the first thing checked: a clip of the wrong size is wrong whatever its length
+
+
+@pytest.mark.parametrize("seconds, accepted", [(10.6, False), (9.4, False), (10.5, True), (9.6, True)])
+def test_the_length_may_differ_by_five_percent_and_no_more(seconds, accepted):
+    said = media.check_output(facts_of(1280, 704, seconds), width=1280, height=704, frames=241, fps=24)
+    assert (said is None) is accepted
+    if not accepted:
+        assert f"a clip of {seconds:.1f} seconds; about 10.0 were asked for" in said
+
+
+@pytest.mark.parametrize("seconds, accepted", [(1.3, False), (0.7, False), (1.2, True), (0.8, True)])
+def test_a_short_clip_may_differ_by_a_quarter_of_a_second_where_five_percent_would_be_less(seconds, accepted):
+    """25 frames at 24 a second is 1.04 s: 5% is 0.05 s, which no real encoder meets, so the allowance has a floor of a quarter of a second."""
+    assert (media.check_output(facts_of(256, 128, seconds), width=256, height=128, frames=25, fps=24) is None) is accepted

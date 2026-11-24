@@ -8,7 +8,9 @@ writes an H.264 and AAC MP4 of the size and length asked for with ffmpeg.
 
 How it behaves is chosen by words in the prompt, as the fake engines' are: `[ltx:error]` fails with a Python error, `[ltx:oom]` fails with CUDA's out-of-memory error, `[ltx:killed]` kills
 itself the way the system's out-of-memory killer does, `[ltx:slow]` takes ten seconds in small steps (so that a test can cancel it), `[ltx:silent]` writes no sound, `[ltx:short]` writes a clip
-that is far too short, `[ltx:nofile]` ends happily and writes nothing. Every call is recorded in the file named by FAKE_LTX_RECORD (as one JSON line: its arguments and a few facts about its
+that is far too short, `[ltx:nofile]` ends happily and writes nothing, `[ltx:wrongsize]` writes a clip of half the size asked for, `[ltx:helper]` starts a helper process of its own in the same process group (as the real program's libraries can) and
+records its pid, and `[ltx:deaf]` ignores SIGTERM, so that only SIGKILL ends it (both are for the tests of Cancel, which must end everything the program started and must not wait for a
+program that will not stop when asked). Every call is recorded in the file named by FAKE_LTX_RECORD (as one JSON line: its arguments and a few facts about its
 environment), so that a test can see exactly what the engine ran.
 """
 
@@ -47,6 +49,15 @@ def main() -> int:
                                   "pgid": os.getpgid(0), "unbuffered": os.environ.get("PYTHONUNBUFFERED"),
                                   "env": {name: os.environ.get(name) for name in ("PYTHONDONTWRITEBYTECODE", "TRITON_CACHE_DIR", "TORCHINDUCTOR_CACHE_DIR", "TORCH_HOME", "HF_HOME",
                                                                                 "XDG_CACHE_HOME", "HOME", "PATH", "CUDA_VISIBLE_DEVICES", "VIRTUAL_ENV", "PYTHONHOME")}}) + "\n")
+
+    if "[ltx:deaf]" in args.prompt:
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)  # a program that does not stop when it is asked to: only the insisting signal (SIGKILL) ends it
+    if "[ltx:helper]" in args.prompt:
+        # a process of its own, in this one's process group, that holds neither of the pipes (so that it can never be what the engine is waiting for); Cancel must end it too
+        helper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if record:
+            with open(record, "a", encoding="utf-8") as out:
+                out.write(json.dumps({"helper_pid": helper.pid, "helper_pgid": os.getpgid(helper.pid), "pgid": os.getpgid(0)}) + "\n")
 
     err = sys.stderr
     delay = 0.01
@@ -98,7 +109,8 @@ def main() -> int:
         return 0
     frames = 9 if "[ltx:short]" in prompt else args.num_frames
     seconds = frames / args.frame_rate
-    argv = ["ffmpeg", "-v", "error", "-y", "-threads", "1", "-f", "lavfi", "-i", f"testsrc2=s={args.width}x{args.height}:r={args.frame_rate}:d={seconds + 0.2:.3f}"]
+    width, height = (args.width // 2, args.height // 2) if "[ltx:wrongsize]" in prompt else (args.width, args.height)  # a program that did not make the size it was asked for
+    argv = ["ffmpeg", "-v", "error", "-y", "-threads", "1", "-f", "lavfi", "-i", f"testsrc2=s={width}x{height}:r={args.frame_rate}:d={seconds + 0.2:.3f}"]
     if "[ltx:silent]" not in prompt:
         argv += ["-f", "lavfi", "-i", f"sine=frequency=330:sample_rate=48000:duration={max(0.1, seconds - 0.03):.3f}"]
     argv += ["-frames:v", str(frames), "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p"]

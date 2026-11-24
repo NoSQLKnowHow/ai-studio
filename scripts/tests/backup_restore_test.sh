@@ -127,7 +127,7 @@ unpack() { rm -rf "$2"; mkdir -p "$2"; tar -xf "$1" -C "$2"; }   # unpack TAR in
 # what everything looked like, so a test can prove that a restore gave back identical bytes.
 make_pristine() {
   rm -rf "$REPO" "$DEST" "$HFDIR"
-  mkdir -p "$REPO/scripts" "$REPO/backend/studio" "$REPO/data/images/run1" "$REPO/data/thumbs/run1" "$REPO/data/builder/chat1" "$REPO/data/speech/readings/run1/0000" "$REPO/data/speech/voices/v1" "$DEST"
+  mkdir -p "$REPO/scripts" "$REPO/backend/studio" "$REPO/data/images/run1" "$REPO/data/thumbs/run1" "$REPO/data/builder/chat1" "$REPO/data/speech/readings/run1/0000" "$REPO/data/speech/voices/v1" "$REPO/data/video/run1" "$DEST"
   cp "$SRC"/scripts/backup.sh "$SRC"/scripts/restore.sh "$SRC"/scripts/_backup_common.sh "$REPO/scripts/"
   cp "$SRC/compose.yaml" "$REPO/"
   echo '__version__ = "0.0.0-test"' > "$REPO/backend/studio/__init__.py"
@@ -137,6 +137,8 @@ make_pristine() {
   head -c 40000 /dev/urandom > "$REPO/data/builder/chat1/a1.webp"   # a picture attached to a Prompt builder chat (DESIGN.md §37.3 rule 13): part of ./data, so part of every backup
   head -c 90000 /dev/urandom > "$REPO/data/speech/readings/run1/0000/00000.wav"   # a piece of a reading (DESIGN.md §38.8): readings never expire and a book is the largest thing in ./data, so it must be in every backup
   head -c 30000 /dev/urandom > "$REPO/data/speech/voices/v1/reference.wav"        # the recording a saved voice is made from: lose it and the voice is gone
+  head -c 120000 /dev/urandom > "$REPO/data/video/run1/clip.mp4"                  # a video clip (DESIGN.md §46.9): it takes minutes to make and is the person's work, so it is in every backup
+  head -c 9000 /dev/urandom > "$REPO/data/video/run1/poster.jpg"
   python3 - "$REPO/data/studio.sqlite" <<'PY'
 import sqlite3, sys
 c = sqlite3.connect(sys.argv[1]); c.execute("PRAGMA journal_mode=WAL")
@@ -314,6 +316,53 @@ check "the audiobook folder is not there at all" test ! -d "$T/xa/data/speech/au
 check "the reading beside it is" cmp -s "$T/xa/data/speech/readings/run1/0000/00000.wav" "$REPO/data/speech/readings/run1/0000/00000.wav"
 check "so is the saved voice's recording" cmp -s "$T/xa/data/speech/voices/v1/reference.wav" "$REPO/data/speech/voices/v1/reference.wav"
 check "and the live audiobook file was not touched" test -s "$REPO/data/speech/audiobooks/run1-abc123abc123.m4b"
+
+# DESIGN.md section 46.9: the clips are in the backup (they are the person's work), and what can be made again is not: a clip's unfinished work folder and the video program's cache.
+# The model files (STUDIO_VIDEO_MODELS_DIR) are the person's own folder outside the studio and are never copied. The summary says what the clips weigh.
+section "the video clips are in the backup; the work folders and the program's cache are not; the model files never are"
+fresh
+mkdir -p "$REPO/data/video/run1/work" "$REPO/data/video/run2/work" "$REPO/data/video-cache/triton" "$REPO/data/video-cache/huggingface" "$T/ltx-models/diffusion_models"
+head -c 60000 /dev/urandom > "$REPO/data/video/run1/work/seg-0.mp4"            # the intermediates of a chained clip that is not finished
+head -c 3000 /dev/urandom > "$REPO/data/video/run2/clip.mp4"; head -c 2000 /dev/urandom > "$REPO/data/video/run2/work/seg-0-last.png"
+head -c 80000 /dev/urandom > "$REPO/data/video-cache/triton/kernel.bin"        # a compiled kernel
+head -c 80000 /dev/urandom > "$REPO/data/video-cache/huggingface/blob"
+head -c 500000 /dev/urandom > "$T/ltx-models/diffusion_models/ltx-distilled.safetensors"   # the person's model files, where STUDIO_VIDEO_MODELS_DIR says
+printf 'STUDIO_PORT=8080\nHF_TOKEN=secret-token\nSTUDIO_VIDEO_MODELS_DIR=%s\n' "$T/ltx-models" > "$REPO/.env"
+out=$(bk --no-env "$DEST" 2>&1); rc=$?
+equals "exits 0" "$rc" 0
+B=$(latest)
+rm -rf "$T/xv"; mkdir -p "$T/xv"; member data.tar.gz | tar -xz -C "$T/xv"
+check "the clip is in the data piece" cmp -s "$T/xv/data/video/run1/clip.mp4" "$REPO/data/video/run1/clip.mp4"
+check "so is its poster" cmp -s "$T/xv/data/video/run1/poster.jpg" "$REPO/data/video/run1/poster.jpg"
+check "and the other clip" cmp -s "$T/xv/data/video/run2/clip.mp4" "$REPO/data/video/run2/clip.mp4"
+check "the work folder of the first clip is not" test ! -e "$T/xv/data/video/run1/work"
+check "nor the second's" test ! -e "$T/xv/data/video/run2/work"
+check "the program's cache is not there at all" test ! -e "$T/xv/data/video-cache"
+check "a reading beside them is" cmp -s "$T/xv/data/speech/readings/run1/0000/00000.wav" "$REPO/data/speech/readings/run1/0000/00000.wav"
+check "no piece of the backup holds a model file" bash -c "! tar -xOf '$B' | tar -tzf - 2>/dev/null | grep -q safetensors; ! tar -tf '$B' | grep -q 'safetensors\|ltx-models'"
+check "the live work folder and cache were not touched" test -s "$REPO/data/video/run1/work/seg-0.mp4" -a -s "$REPO/data/video-cache/triton/kernel.bin"
+contains "the summary names the clips and what they weigh" "$out" "video clips (data/video):"
+contains "and says the work folders and the cache are left out" "$out" "work folders and the program's cache (data/video-cache) are left out"
+contains "and that the model files are the person's own, naming the folder" "$out" "back up $T/ltx-models yourself"
+# a restore gives the clips back, byte for byte, and brings back neither the work folders nor the cache
+rm -rf "$REPO/data"; echo false > "$STUB_STATE/running"
+out=$(rs "$B" 2>&1); rc=$?
+equals "restore exits 0" "$rc" 0
+check "the clip is back, byte for byte" cmp -s "$REPO/data/video/run1/clip.mp4" "$T/xv/data/video/run1/clip.mp4"
+check "and its poster" cmp -s "$REPO/data/video/run1/poster.jpg" "$T/xv/data/video/run1/poster.jpg"
+check "no work folder came back" test ! -e "$REPO/data/video/run1/work"
+check "no cache came back" test ! -e "$REPO/data/video-cache"
+
+section "a backup of a studio that has made no clip says nothing about video"
+fresh
+rm -rf "$REPO/data/video"
+out=$(bk "$DEST" 2>&1); rc=$?
+equals "exits 0" "$rc" 0
+check "the summary has no line about clips" test "${out#*data/video}" = "$out"
+check "nor about video model files" test "${out#*video model files}" = "$out"
+B=$(latest)
+rm -rf "$T/xn"; mkdir -p "$T/xn"; member data.tar.gz | tar -xz -C "$T/xn"
+check "and the data piece has no video folder" test ! -e "$T/xn/data/video"
 
 # The new default. With all three models in the cache, a plain backup holds all three, in a fixed order, and nothing else from the
 # cache (another tool's model in the same folder must stay out).
@@ -774,6 +823,7 @@ equals "data identical to the original" "$(tree_hash "$REPO/data")" "$PRISTINE_D
 check "and a chat's picture (data/builder) came back with it" test -s "$REPO/data/builder/chat1/a1.webp"
 check "and a reading's piece (data/speech/readings) came back with it" test -s "$REPO/data/speech/readings/run1/0000/00000.wav"
 check "and a saved voice's recording (data/speech/voices) came back with it" test -s "$REPO/data/speech/voices/v1/reference.wav"
+check "and a video clip (data/video) came back with it" test -s "$REPO/data/video/run1/clip.mp4"
 equals "SQLite database passes its integrity check" "$(python3 -c "import sqlite3,sys; c=sqlite3.connect(sys.argv[1]); print(c.execute('PRAGMA integrity_check').fetchone()[0], c.execute('SELECT count(*) FROM runs').fetchone()[0])" "$REPO/data/studio.sqlite")" "ok 50"
 equals ".env identical" "$(sha256sum "$REPO/.env" | cut -d' ' -f1)" "$PRISTINE_ENV"
 equals ".env is private (600)" "$(stat -c %a "$REPO/.env")" 600

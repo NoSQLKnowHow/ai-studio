@@ -8,11 +8,13 @@ import json
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 import pytest
 from video_support import OTHER_RUN_ID, RUN_ID, in_process_worker, video_job
 
+from studio.pipelines.base import Canceled
 from studio.video import media
 from studio.video.job import VideoJob
 
@@ -119,6 +121,41 @@ def test_cancel_stops_a_clip_that_is_being_made_and_a_cancel_before_it_starts_st
     assert emit2.of("run_canceled")[0]["completed"] == 0
 
 
+class MuteEngine:
+    """An engine that works and says nothing (no progress at all, as a program whose log lines are not recognised): the flag it is handed is the only way to reach it."""
+
+    def generate(self, request, progress, cancelled):
+        end = time.monotonic() + 10
+        while time.monotonic() < end:
+            if cancelled():
+                raise Canceled()
+            time.sleep(0.01)
+        raise AssertionError("it was never told to stop")
+
+
+class DeafEngine:
+    """An engine that never looks at the flag but reports as it goes (as the real one reports every step): Cancel reaches it in the report, which raises."""
+
+    def generate(self, request, progress, cancelled):
+        for step in range(1000):
+            progress("denoise", step, 1000)
+            time.sleep(0.01)
+        raise AssertionError("it was never told to stop")
+
+
+@pytest.mark.parametrize("engine", [MuteEngine, DeafEngine], ids=["through the flag the engine is given", "through the progress report"])
+def test_cancel_reaches_an_engine_by_either_road_and_does_not_depend_on_the_other(tmp_path, engine):
+    """The worker gives the engine two ways to be stopped (DESIGN.md §46.6): a flag to look at, and a progress callback that raises. An engine may use either, so each must work alone."""
+    worker, emit = in_process_worker(tmp_path)
+    assert worker.load()
+    worker.pipeline = engine()
+    threading.Timer(0.3, lambda: worker.request_cancel(RUN_ID)).start()
+    started = time.monotonic()
+    worker.run(video_job())
+    assert emit.kinds()[-1] == "run_canceled" and "run_failed" not in emit.kinds() and "video_done" not in emit.kinds()
+    assert time.monotonic() - started < 5  # at once, not when the engine gives up by itself
+
+
 def test_a_malformed_job_is_run_failed_with_the_reason_and_nothing_is_written(tmp_path):
     worker, emit = in_process_worker(tmp_path)
     worker.run(video_job(num_frames=24))
@@ -155,7 +192,7 @@ def test_the_probe_of_the_worker_process_answers_for_the_video_engine_and_is_tol
     said = json.loads(real.stdout.strip().splitlines()[-1])
     assert said["ok"] is False and said["error"]["kind"] == "unavailable" and said["error"]["message"] and said["error"]["hint"]
     # and told where to look, it names the missing thing by its path
-    (tmp_path / "models").mkdir()  # a folder that is there and has nothing in it: the message then names where each file should be
+    (tmp_path / "models" / "diffusion_models").mkdir(parents=True)  # the right folder with nothing in it: the message then names where each file should be
     config = json.dumps({"models_dir": str(tmp_path / "models"), "command": [sys.executable]})
     told = subprocess.run([sys.executable, "-m", "studio.worker", "--kind", "video", "--pipeline", "real", "--model", "", "--data-dir", str(tmp_path), "--engine", "ltx", "--probe",
                            "--engine-config", config], capture_output=True, text=True, cwd=BACKEND, timeout=60)

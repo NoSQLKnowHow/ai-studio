@@ -414,6 +414,17 @@ describe("what a working clip says", () => {
     expect(workingText({ ...working, canceling: true }, 300, at(100))).toBe("Stopping the video program… · 1 min 40 s so far");
   });
 
+  it("says the program does not report steps when two minutes have passed and it has not said what it is doing, and not before", () => {
+    const started = "2026-11-02T13:00:00.000Z";
+    const at = (seconds: number) => Date.parse(started) + seconds * 1000;
+    const quiet = run({ status: "running", started_at: started, progress: null });
+    expect(workingText(quiet, null, at(60))).toBe("Starting the video program · 1 min 00 s so far");
+    expect(workingText(quiet, null, at(150))).toBe("Working: the program does not say which step it is on · 2 min 30 s so far");
+    expect(workingText({ ...quiet, progress: progress("start") }, null, at(150))).toContain("does not say which step");
+    expect(workingText({ ...quiet, progress: progress("denoise", 2, 8) }, null, at(150))).toContain("Making the picture and sound (first pass): step 2 of 8"); // one that does say is believed
+    expect(workingText({ ...quiet, canceling: true }, null, at(150))).toBe("Stopping the video program… · 2 min 30 s so far");
+  });
+
   it("writes an elapsed time exactly", () => {
     expect([45, 60, 130, 3605].map(aboutExact)).toEqual(["45 s", "1 min 00 s", "2 min 10 s", "60 min 05 s"]);
   });
@@ -496,7 +507,14 @@ describe("the pictures a start can be chosen from", () => {
 
   it("become a start picture that names the studio's own image", () => {
     const [choice] = pictureChoices(runs);
-    expect(pictureFromChoice(choice)).toEqual({ ref: { image_id: "a" }, thumbUrl: "/t/a", width: 800, height: 600, label: "a lighthouse (5)" });
+    expect(pictureFromChoice(choice)).toEqual({ ref: { image_id: "a" }, thumbUrl: "/t/a", width: 800, height: 600, label: "a lighthouse (5)", hasAlpha: undefined });
+  });
+
+  it("carry whether the picture has transparency, for the form's note", () => {
+    const withAlpha = [{ id: "r9", prompt: "a logo", deleted_at: null, images: [{ ...picture("z"), has_alpha: true }] }];
+    const [choice] = pictureChoices(withAlpha);
+    expect(choice.hasAlpha).toBe(true);
+    expect(pictureFromChoice(choice).hasAlpha).toBe(true);
   });
 });
 

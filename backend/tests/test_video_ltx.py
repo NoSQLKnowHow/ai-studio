@@ -66,6 +66,14 @@ def test_a_real_run_is_read_stage_by_stage_in_order():
     assert parser.saved == "/data/video/abc/engine-out.mp4"
 
 
+def test_every_stage_that_is_not_a_loop_reports_its_own_place_in_it_in_the_order_the_program_says_it():
+    """The stages that have no progress bar say how far they are in a step or two of their own (what the page's bar is filled by): `0 of 1` and `1 of 1` for the words and the file, and
+    `0 of 2`, `1 of 2` for the two decoders (the picture's, then the sound's). Each line of the real run is one of them, so a line that stops being understood leaves a gap here."""
+    events, _ = parse(REAL_RUN)
+    plain = [e for e in events if e[0] in ("text", "upscale", "decode", "write")]
+    assert plain == [("text", 0, 1), ("text", 1, 1), ("upscale", 0, 1), ("decode", 0, 2), ("decode", 1, 2), ("write", 0, 1), ("write", 1, 1)]
+
+
 def test_the_two_denoising_loops_are_the_rough_pass_and_the_sharpening_pass_with_their_step_counts():
     events, _ = parse(REAL_RUN)
     assert ("denoise", 0, 8) in events and ("refine", 0, 3) in events  # the loops announce their size
@@ -375,6 +383,68 @@ def test_cancel_ends_the_program_and_everything_it_started_within_a_moment(tmp_p
     assert "denoise" in seen
 
 
+def running(pid: int) -> bool:
+    """Whether a process is still doing anything: a process that has ended but not been waited for yet (a zombie, which a container's first process may leave behind for a while) is not."""
+    try:
+        with open(f"/proc/{pid}/stat", "rb") as handle:
+            state = handle.read().rsplit(b")", 1)[1].split()[0]
+    except (FileNotFoundError, ProcessLookupError):
+        return False
+    return state != b"Z"
+
+
+def wait_until_gone(pid: int, seconds: float = 5.0) -> bool:
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if not running(pid):
+            return True
+        time.sleep(0.05)
+    return not running(pid)
+
+
+@needs_ffmpeg
+def test_cancel_ends_a_process_the_program_started_as_well_as_the_program(tmp_path):
+    """DESIGN.md §46.8, criterion 453: Cancel ends the program's whole process group, so that no helper is left holding the GPU's memory. The stand-in starts a helper in its own group
+    (`[ltx:helper]`) and says its pid; ending only the program (the mutation of `os.killpg(...)` into `proc.send_signal(...)`) would leave the helper alive, and this fails."""
+    models = models_folder(tmp_path / "models")
+    record = tmp_path / "record.jsonl"
+    os.environ["FAKE_LTX_RECORD"] = str(record)
+    stop = threading.Event()
+    threading.Timer(0.8, stop.set).start()
+    try:
+        with pytest.raises(Canceled):
+            LtxEngine(program_config(models)).generate(request(tmp_path / "v" / "o.mp4", prompt="a fox [ltx:slow] [ltx:helper]"), lambda *_: None, stop.is_set)
+    finally:
+        del os.environ["FAKE_LTX_RECORD"]
+    lines = [json.loads(line) for line in record.read_text().splitlines()]
+    leader = lines[0]["pid"]
+    helper = next(line for line in lines if "helper_pid" in line)
+    # the helper really was in the program's group, and the group is the program's own (not the tests'): that is what makes ending the group end it
+    assert helper["helper_pgid"] == helper["pgid"] == leader and helper["pgid"] != os.getpgid(0)
+    assert wait_until_gone(leader), "the program is still running after Cancel"
+    assert wait_until_gone(helper["helper_pid"]), "a process the program started is still running after Cancel"
+
+
+@needs_ffmpeg
+def test_cancel_kills_a_program_that_does_not_stop_when_asked_after_the_grace_and_does_not_wait_for_it_longer(tmp_path, monkeypatch):
+    """The polite stop (SIGTERM) comes first, and a program that ignores it (`[ltx:deaf]`) is ended by the insisting one (SIGKILL) once the grace is over. Without the second signal
+    the program carries on for the ten seconds it takes, and Cancel would not have cancelled anything."""
+    monkeypatch.setattr(ltx, "KILL_GRACE_SECONDS", 0.5)  # the real grace is five seconds
+    models = models_folder(tmp_path / "models")
+    record = tmp_path / "record.jsonl"
+    os.environ["FAKE_LTX_RECORD"] = str(record)
+    stop = threading.Event()
+    threading.Timer(0.8, stop.set).start()
+    started = time.monotonic()
+    try:
+        with pytest.raises(Canceled):
+            LtxEngine(program_config(models)).generate(request(tmp_path / "v" / "o.mp4", prompt="a fox [ltx:slow] [ltx:deaf]"), lambda *_: None, stop.is_set)
+    finally:
+        del os.environ["FAKE_LTX_RECORD"]
+    assert time.monotonic() - started < 6  # the grace and a little, not the ten seconds the program would have taken
+    assert wait_until_gone(json.loads(record.read_text().splitlines()[0])["pid"]), "the program that ignored the polite stop is still running"
+
+
 @needs_ffmpeg
 def test_cancel_raised_by_the_progress_callback_stops_the_program_too(tmp_path):
     """The worker's own callback raises Canceled between two reports; the engine must end the program then as well."""
@@ -406,7 +476,10 @@ def test_a_program_that_ends_well_but_writes_no_clip_or_a_wrong_one_is_an_error_
         LtxEngine(program_config(models)).generate(request(tmp_path / "a" / "o.mp4", prompt="a fox [ltx:nofile]"), lambda *e: None, lambda: False)
     with pytest.raises(PipelineError, match="clip of 0.4 seconds; about 1.0 were asked for"):
         LtxEngine(program_config(models)).generate(request(tmp_path / "b" / "o.mp4", prompt="a fox [ltx:short]"), lambda *e: None, lambda: False)
-    # (a clip of the wrong size is the same check, in media.check_output, tested with the facts it takes)
+    # a clip of the wrong size is the same check (media.check_output, tested with the facts it takes in test_video_fake_engine.py); here it is the whole road, from a program that wrote
+    # half the size to the error the person reads (the file the program wrote is the server's to remove: a failed clip leaves no clip, which test_video_server.py checks)
+    with pytest.raises(PipelineError, match=r"wrote a 128x64 clip; 256x128 was asked for"):
+        LtxEngine(program_config(models)).generate(request(tmp_path / "c" / "o.mp4", prompt="a fox [ltx:wrongsize]"), lambda *e: None, lambda: False)
 
 
 @needs_ffmpeg
@@ -444,10 +517,14 @@ def test_the_start_up_check_names_the_first_thing_that_is_wrong_in_the_order_a_p
     with pytest.raises(PipelineUnavailable) as caught:
         check_ready(program_config(tmp_path / "none"), inspect=False)
     assert f"The folder of model files is not there: {tmp_path / 'none'}" in caught.value.message and "STUDIO_VIDEO_MODELS_DIR" in (caught.value.hint or "")
-    (tmp_path / "empty").mkdir()
+    (tmp_path / "empty").mkdir()  # there, but it is the wrong folder (one level off): said once, with what it holds
     with pytest.raises(PipelineUnavailable) as caught:
         check_ready(program_config(tmp_path / "empty"), inspect=False)
-    assert str(tmp_path / "empty" / "diffusion_models") in caught.value.message
+    assert "holds none of diffusion_models, text_encoders, vae or latent_upscale_models" in caught.value.message and str(tmp_path / "empty") in caught.value.message
+    (tmp_path / "bare" / "diffusion_models").mkdir(parents=True)  # the right folder with a model folder in it that has no file in it: the message names where the file should be
+    with pytest.raises(PipelineUnavailable) as caught:
+        check_ready(program_config(tmp_path / "bare"), inspect=False)
+    assert str(tmp_path / "bare" / "diffusion_models") in caught.value.message and "Also wrong:" in caught.value.hint
     # 3. a program that is not there
     with pytest.raises(PipelineUnavailable) as caught:
         check_ready(program_config(models, command=("/nowhere/python", "-m", "ltx_pipelines.distilled")), inspect=True)

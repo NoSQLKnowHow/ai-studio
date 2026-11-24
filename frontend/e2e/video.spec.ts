@@ -183,6 +183,59 @@ test("the tab has no sideways scroll at 360 px wide, with the licence, the form 
   }
 });
 
+test("a clip is a run like the others: Keep, a tag, a search by what you hear (and not by its settings), Delete to the bin and Restore", async ({ page }) => {
+  await openVideo(page);
+  await acknowledged(page);
+  const words = unique("a heron over the lake");
+  await happens(page).fill(words);
+  await hear(page).fill("distant crows and wind");
+  await small(page);
+  await make(page).click();
+  const c = clipCard(page, words).first();
+  await done(c);
+  const id = (await c.getAttribute("data-run-id"))!;
+  const bar = page.locator("[data-filter-bar]:visible");
+
+  // Keep: the badge, and no expiry warning
+  await c.getByRole("button", { name: /^Keep/ }).click();
+  await expect(c.locator(".badge-kept")).toBeVisible();
+  expect(((await (await page.request.get(`/api/runs/${id}`)).json()) as { pinned: boolean }).pinned).toBe(true);
+
+  // a tag, typed on the card
+  await c.getByRole("button", { name: "Add tags or a note" }).click();
+  const tagBox = c.getByRole("combobox", { name: "Add a tag" });
+  await tagBox.fill("birds,");
+  await expect(c.getByText("birds", { exact: true }).first()).toBeVisible();
+
+  // the search finds it by what you hear, by its tag and by its words, and not by a setting of it
+  const search = page.getByRole("searchbox", { name: "Search history" });
+  for (const word of ["crows", "birds", "heron"]) {
+    await search.fill(word);
+    await expect(c).toBeVisible();
+  }
+  await search.fill("distilled");
+  await expect(c).toHaveCount(0);
+  await search.fill("");
+  await expect(c).toBeVisible();
+
+  // Delete: it asks (saying what is removed), goes to Deleted with its file kept, and cannot be played there; Restore brings it back, and it plays
+  await c.getByRole("button", { name: /^Delete/ }).click();
+  const question = page.getByRole("alertdialog", { name: "Delete this clip?" });
+  await expect(question).toBeVisible();
+  await question.getByRole("button", { name: "Delete", exact: true }).click();
+  await expect(c).toHaveCount(0);
+  const src = ((await (await page.request.get(`/api/runs/${id}`)).json()) as { video: { url: string } }).video.url;
+  expect((await page.request.get(src)).status()).toBe(404); // in the bin it is not served
+  await bar.getByRole("radio", { name: /^Deleted/ }).click();
+  await expect(c).toBeVisible();
+  await expect(c.locator("video")).toHaveCount(0);
+  await expect(c.locator("[data-note=in-bin]")).toContainText("A clip in the bin cannot be played: restore it first.");
+  await c.getByRole("button", { name: "Restore" }).click();
+  await bar.getByRole("radio", { name: "All" }).click();
+  await expect(c.locator("video")).toBeVisible();
+  expect((await page.request.get(src)).status()).toBe(200);
+});
+
 test("the licence can be withdrawn, and the form is off again", async ({ page }) => {
   await openVideo(page);
   await acknowledged(page);

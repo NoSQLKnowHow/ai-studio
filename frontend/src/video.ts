@@ -314,15 +314,20 @@ export function stageFraction(progress: Progress | null): number | null {
 
 /** The line a working card shows (DESIGN.md §46.11): what the program is doing, how long it has taken, and about how long is left (from the estimate), or that it is taking longer. */
 export function workingText(run: VideoRun, estimate: number | null, now: number): string {
-  const stage = run.canceling ? "Stopping the video program…" : stageText(run.progress);
-  if (!run.started_at) return stage;
+  if (!run.started_at) return run.canceling ? "Stopping the video program…" : stageText(run.progress);
   const elapsed = Math.max(0, Math.round((now - Date.parse(run.started_at)) / 1000));
+  // A program whose lines are not recognised never gets past "starting": after the time loading takes (about 45 to 75 s on the Spark) the card says it is working and that it does not say
+  // which step it is on, instead of looking stuck (DESIGN.md §46.13 criterion 491)
+  const silent = (!run.progress || run.progress.stage === "start" || !isStage(run.progress.stage)) && elapsed >= SILENT_AFTER_SECONDS;
+  const stage = run.canceling ? "Stopping the video program…" : silent ? "Working: the program does not say which step it is on" : stageText(run.progress);
   const sofar = `${aboutExact(elapsed)} so far`;
   if (run.canceling || estimate === null) return `${stage} · ${sofar}`;
   const left = estimate - elapsed;
   const tail = left > 15 ? `about ${aboutText(left)} to go` : elapsed > estimate * 1.25 ? "taking longer than the estimate" : "nearly done";
   return `${stage} · ${sofar}, ${tail}`;
 }
+
+const SILENT_AFTER_SECONDS = 120;
 
 /** An elapsed time exactly: "45 s", "2 min 10 s". */
 export function aboutExact(seconds: number): string {
@@ -400,6 +405,7 @@ export interface StartPicture {
   width: number;
   height: number;
   label: string;
+  hasAlpha?: boolean; // the picture has transparency, which the clip does not: it is laid on white (the form says so, DESIGN.md §46.13 criterion 490)
 }
 
 /** A picture of the history that can be chosen as a start picture: a result of a finished run. */
@@ -409,6 +415,7 @@ export interface VideoPictureChoice {
   width: number;
   height: number;
   label: string;
+  hasAlpha?: boolean;
 }
 
 /** Animate this (DESIGN.md §46.11): a request for the Video tab to take this picture as its start, with the words of the picture's run. `seq` makes each press a new request. */
@@ -420,18 +427,18 @@ export interface AnimateRequest {
 
 /** A chosen history picture as a start picture. */
 export const pictureFromChoice = (choice: VideoPictureChoice): StartPicture => ({
-  ref: { image_id: choice.imageId }, thumbUrl: choice.thumbUrl, width: choice.width, height: choice.height, label: choice.label,
+  ref: { image_id: choice.imageId }, thumbUrl: choice.thumbUrl, width: choice.width, height: choice.height, label: choice.label, hasAlpha: choice.hasAlpha,
 });
 
 /** The pictures of finished runs the start picker offers (newest first, at most `limit`): each result of a run that is in the history. */
-export function pictureChoices(runs: readonly { id: string; prompt: string; deleted_at: string | null; images: { id: string; seed: number; width: number; height: number; thumb_url: string | null; url: string }[] }[], limit = 60): VideoPictureChoice[] {
+export function pictureChoices(runs: readonly { id: string; prompt: string; deleted_at: string | null; images: { id: string; seed: number; width: number; height: number; thumb_url: string | null; url: string; has_alpha?: boolean }[] }[], limit = 60): VideoPictureChoice[] {
   const found: VideoPictureChoice[] = [];
   for (const run of runs) {
     if (run.deleted_at !== null) continue;
     for (const image of run.images) {
       if (found.length >= limit) return found;
       const words = run.prompt.length > 60 ? `${run.prompt.slice(0, 60)}…` : run.prompt;
-      found.push({ imageId: image.id, thumbUrl: image.thumb_url ?? image.url, width: image.width, height: image.height, label: `${words} (${image.seed})` });
+      found.push({ imageId: image.id, thumbUrl: image.thumb_url ?? image.url, width: image.width, height: image.height, label: `${words} (${image.seed})`, hasAlpha: image.has_alpha });
     }
   }
   return found;

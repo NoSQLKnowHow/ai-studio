@@ -51,7 +51,7 @@ from .. import media
 from ..engine import (
     CancelCheck, Clip, EngineBase, EngineConfig, Estimate, ProgressCallback, SizePreset, VideoEngineInfo, VideoLicence, VideoRequest,
 )
-from .ltx_files import KINDS, LABELS, ModelFiles, find_files
+from .ltx_files import FOLDERS, KINDS, LABELS, ModelFiles, find_files
 
 log = logging.getLogger("studio.video.ltx")
 
@@ -74,6 +74,7 @@ MEASURED_ON_THE_SPARK = {
 # driver is the host's, shared through the nvidia runtime).
 IMAGE_TORCH = "2.9.0a0+145a3a7bda.nv25.10 (CUDA 13.0)"
 
+REBUILD_HINT = "On the host, run uv sync in the LTX-2 folder (the way the environment was first made), then press Check again. For the environment built into the image: rebuild it with VIDEO_LTX=1."
 NOT_SET_UP_HINT = ("Set STUDIO_VIDEO_LTX_DIR in .env to your LTX-2 folder on the host, and STUDIO_VIDEO_MODELS_DIR to the folder of model files, then docker compose up -d "
                    "(README, Video). Or build the program into the image with VIDEO_LTX=1, or name it with STUDIO_VIDEO_COMMAND.")
 LICENCE_URL = "https://github.com/Lightricks/LTX-2/blob/main/LICENSE-2_x"
@@ -437,12 +438,12 @@ def inspect_environment(command: Sequence[str], env: Optional[dict[str, str]] = 
     try:
         done = subprocess.run([command[0], "-c", _INSPECT], capture_output=True, text=True, timeout=INSPECT_SECONDS, env=environment, stdin=subprocess.DEVNULL)
     except (OSError, subprocess.TimeoutExpired) as exc:
-        return Environment(command, problem=f"The video program's Python could not be run ({type(exc).__name__}: {exc}).", hint="Run it by hand in the container to see why.")
+        return Environment(command, problem=f"The video program's Python could not be run ({type(exc).__name__}: {exc}).", hint=f"To see why, run it by hand: docker exec ai-image-studio {command[0]} -c 'import torch, ltx_pipelines'")
     try:
         facts = json.loads(done.stdout.strip().splitlines()[-1])
     except (ValueError, IndexError):
         message, _ = extract_error(done.stderr.splitlines(), done.returncode)
-        return Environment(command, problem=f"The video program's Python did not answer: {message}", hint="Run it by hand in the container to see why.")
+        return Environment(command, problem=f"The video program's Python did not answer: {message}", hint=f"To see why, run it by hand: docker exec ai-image-studio {command[0]} -c 'import torch, ltx_pipelines'")
     python = tuple(facts.get("python") or ())
     report = dict(command=command, python=python or None, torch=facts.get("torch"), cuda_built=facts.get("cuda_built"), cuda=facts.get("cuda"), gpu=facts.get("gpu"),
                   packages=facts.get("packages") or {}, natten=facts.get("natten"))
@@ -450,14 +451,15 @@ def inspect_environment(command: Sequence[str], env: Optional[dict[str, str]] = 
         return Environment(**report, problem=f"The video program's Python is {'.'.join(map(str, python))}; LTX-2 needs {MIN_PYTHON[0]}.{MIN_PYTHON[1]} or newer.",
                            hint="Make the environment with Python 3.12 (uv sync --python 3.12), the Python the container has too.")
     if facts.get("torch_error"):
-        return Environment(**report, problem=f"PyTorch does not import in the video program's environment ({facts['torch_error']}).", hint="Rebuild that environment with uv sync.")
+        return Environment(**report, problem=f"PyTorch does not import in the video program's environment ({facts['torch_error']}).", hint=REBUILD_HINT)
     if not facts.get("ltx_found"):
-        return Environment(**report, importable=False, problem="The LTX-2 program (ltx_pipelines) is not installed in that environment.", hint="Install it with uv sync in the LTX-2 checkout.")
+        return Environment(**report, importable=False, problem="The LTX-2 program (ltx_pipelines) is not installed in that environment.", hint=REBUILD_HINT)
     if facts.get("ltx_error"):
-        return Environment(**report, importable=False, problem=f"The LTX-2 program does not import ({facts['ltx_error']}).", hint="Rebuild that environment with uv sync.")
+        return Environment(**report, importable=False, problem=f"The LTX-2 program does not import ({facts['ltx_error']}).", hint=REBUILD_HINT)
     if not facts.get("cuda"):
         return Environment(**report, importable=True, problem="PyTorch in the video program's environment cannot see the GPU.",
-                           hint=f"Its PyTorch must be a CUDA build (the one measured working is torch {MEASURED_ON_THE_SPARK['packages']['torch']}), and the container must have the GPU (runtime: nvidia).")
+                           hint=f"Its PyTorch must be a CUDA build (the one measured working is torch {MEASURED_ON_THE_SPARK['packages']['torch']}), and the container must have the GPU: "
+                                f"docker exec ai-image-studio nvidia-smi must show it. If it does, send back the output of: docker exec ai-image-studio env | grep -i -E 'cuda|triton|ld_library'.")
     return Environment(**report, importable=True)
 
 
@@ -465,10 +467,9 @@ def who() -> str:
     """Who the studio runs as in the container, in the words a message gives so that a person knows which user must be able to read what: `studio (uid 1000, gid 1000)`."""
     uid, gid = os.getuid(), os.getgid()
     try:
-        name = pwd.getpwuid(uid).pw_name
-    except KeyError:
-        name = "no name"
-    return f"{name} (uid {uid}, gid {gid})"
+        return f"{pwd.getpwuid(uid).pw_name} (uid {uid}, gid {gid})"
+    except KeyError:  # the container has no name for the user it was told to run as (STUDIO_UID): the numbers are what the host's `ls -ln` shows
+        return f"uid {uid}, gid {gid}"
 
 
 def _cannot_read(path: Path) -> bool:
@@ -487,7 +488,7 @@ def check_ltx_dir(ltx_dir: str) -> Optional[tuple[str, str]]:
         return (f"The LTX-2 folder is not a folder: {root}.", "STUDIO_VIDEO_LTX_DIR must be the folder that LTX-2 was cloned into, not a file.")
     if _cannot_read(root):
         return (f"The studio cannot read the LTX-2 folder {root}: it runs as {who()}.",
-                f"On the host: chmod -R a+rX {root}  (or set STUDIO_UID and STUDIO_GID in .env to the owner's ids, and docker compose up -d). {mount}")
+                f"On the host: chmod -R a+rX {root} and press Check again; or set STUDIO_UID and STUDIO_GID in .env to the folder's owner (ls -ln shows the numbers) and run docker compose up -d.")
     python = root / ".venv" / "bin" / "python"
     if not os.path.lexists(python):
         return (f"The LTX-2 folder has no Python environment: {python} is not there.",
@@ -497,7 +498,7 @@ def check_ltx_dir(ltx_dir: str) -> Optional[tuple[str, str]]:
         return (f"The LTX-2 environment's Python is a link to {target}, which is not in the container.",
                 "The container has Python 3.12 at /usr/bin/python3 (Ubuntu 24.04); an environment made with another Python cannot be shared. Make it with uv sync --python 3.12 on the host.")
     if not os.access(python, os.X_OK):
-        return (f"The studio cannot run the LTX-2 environment's Python {python}: it runs as {who()}.", f"On the host: chmod -R a+rX {root}/.venv  (or set STUDIO_UID and STUDIO_GID).")
+        return (f"The studio cannot run the LTX-2 environment's Python {python}: it runs as {who()}.", f"On the host: chmod -R a+rX {root}/.venv and press Check again; or set STUDIO_UID and STUDIO_GID in .env to the folder's owner and run docker compose up -d.")
     if not (root / "packages").is_dir():
         return (f"{root} has no packages/ folder, so it does not look like a LTX-2 clone.",
                 "STUDIO_VIDEO_LTX_DIR must be the folder that LTX-2 was cloned into (it holds .venv and packages/: the program's own libraries are installed from there).")
@@ -508,19 +509,28 @@ def check_model_files(config: EngineConfig) -> None:
     """The model files, found and readable (DESIGN.md §46.7): raises `PipelineUnavailable` for the first thing wrong. Every problem found is in the hint, so that one look says what to
     put right; a file the studio's user cannot read is its own reason, with who that is and what to change."""
     models = config.models_path()
+    named_all = all(config.files.get(kind) for kind in KINDS)  # every file is named by its own setting: the folder's layout does not matter
+    if models is None and not named_all:
+        raise PipelineUnavailable("The folder of model files is not set.", hint="Set STUDIO_VIDEO_MODELS_DIR in .env to the folder that holds diffusion_models, text_encoders, vae and latent_upscale_models, "
+                                                                                 "then docker compose up -d (README, Video).")
     if models is not None and not models.is_dir():
         raise PipelineUnavailable(f"The folder of model files is not there: {models}.",
                                   hint="STUDIO_VIDEO_MODELS_DIR must be the folder on the host that holds diffusion_models, text_encoders, vae and latent_upscale_models. "
                                        "compose.yaml shares it at the same path, read-only; after changing .env run docker compose up -d again.")
+    if models is not None and not named_all and not any((models / folder).is_dir() for folder in set(FOLDERS.values())):  # the wrong folder, one level off: say so once
+        held = sorted(p.name for p in models.iterdir() if not p.name.startswith("."))[:8] if os.access(models, os.R_OK | os.X_OK) else []
+        raise PipelineUnavailable(f"The folder of model files holds none of diffusion_models, text_encoders, vae or latent_upscale_models: {models} (it holds: {', '.join(held) or 'nothing'}).",
+                                  hint="STUDIO_VIDEO_MODELS_DIR must be the folder that CONTAINS those folders (for the first run on the Spark: the models folder inside ltx-experiment), not one of them and not its parent.")
     found, problems = find_files(models, config.files)
     if problems:
-        raise PipelineUnavailable(problems[0].message, hint=" ".join([problems[0].hint, *(p.message for p in problems[1:])]))
+        also = f" Also wrong: {' '.join(p.message for p in problems[1:])}" if len(problems) > 1 else ""
+        raise PipelineUnavailable(problems[0].message, hint=problems[0].hint + also)
     assert found is not None
     unreadable = [(kind, Path(path)) for kind, path in found.as_dict().items() if _cannot_read(Path(path))]
     if unreadable:
         kind, path = unreadable[0]
         raise PipelineUnavailable(f"The studio cannot read {LABELS[kind]}: {path} (it runs as {who()}).",
-                                  hint=f"On the host: chmod -R a+rX {models or path.parent}  (or set STUDIO_UID and STUDIO_GID in .env to the owner's ids, and docker compose up -d)."
+                                  hint=f"On the host: chmod -R a+rX {models or path.parent} and press Check again; or set STUDIO_UID and STUDIO_GID in .env to the folder's owner (ls -ln shows the numbers) and run docker compose up -d."
                                        + (f" {len(unreadable) - 1} other file(s) cannot be read either." if len(unreadable) > 1 else ""))
 
 

@@ -1,11 +1,11 @@
-"""Schema 14 (DESIGN.md §46.9): `runs` learns the mode 'video' and the Video tab's three tables arrive (`videos`, `video_segments`, `video_speeds`).
+"""Schema 14 (DESIGN.md §46.9): `runs` learns the mode 'video' and the Video tab's two tables arrive (`videos` and `video_segments`; there is no table of speeds, since how long a clip takes is worked out from the runs).
 
 What these protect: a database made by the 1.26 studio (schema 13) is upgraded after a copy is kept, loses no run, no picture, no track and nothing else hanging off a run
 (the rebuild of `runs` is done with foreign keys off, and a mistake there would cascade everything away), ends up exactly the tables a new database has (the same columns, types
 and order, and the same definition of `runs`), a second start changes nothing and makes no second copy, a database this build made is refused by 1.26 as every schema is, and the
 new tables hold their own rules (a clip belongs to a run and goes with it; a segment is queued, running, done, failed or canceled; a speed is kept once for each quality and size).
 
-A schema 13 database is made by taking a current one and putting it back: the three tables dropped, the CHECK on `runs.mode` without 'video', and the version set to 13. That is what
+A schema 13 database is made by taking a current one and putting it back: the two tables dropped, the CHECK on `runs.mode` without 'video', and the version set to 13. That is what
 1.26 had, and it is what the upgrade is built to find.
 """
 
@@ -23,7 +23,7 @@ import studio.db as db_module
 from studio.db import SCHEMA_VERSION, Database, DatabaseError
 from studio.video.schema import VIDEO_SCHEMA
 
-VIDEO_TABLES = {"videos", "video_segments", "video_speeds"}
+VIDEO_TABLES = {"videos", "video_segments"}
 
 
 def as_schema_13(path) -> None:
@@ -82,7 +82,6 @@ def test_a_new_database_has_the_video_tables_and_accepts_the_mode(tmp_path):
         assert [c[0] for c in columns(path, "videos")] == [
             "id", "run_id", "seed", "width", "height", "fps", "frames", "seconds", "has_audio", "audio_channels", "audio_rate", "bytes", "path", "poster_path", "thumb_path", "created_at", "note"]
         assert [c[0] for c in columns(path, "video_segments")] == ["run_id", "idx", "status", "seed", "frames", "seconds", "prompt", "start_image", "path", "started_at", "finished_at", "error"]
-        assert [c[0] for c in columns(path, "video_speeds")] == ["variant", "width", "height", "seconds_per_second", "samples", "updated_at"]
         assert "idx_videos_run" in indexes_of(path, "videos")
         assert sqlite3.connect(path).execute("PRAGMA foreign_key_check").fetchall() == []
         run = insert_run(db, 1, "video")
@@ -262,8 +261,6 @@ def test_a_segment_is_queued_running_done_failed_or_canceled_and_nothing_else_an
         insert(db, SEGMENT, (run, 0, "queued"))
 
 
-def test_a_speed_is_kept_once_for_each_quality_and_size(db):
-    insert(db, "INSERT INTO video_speeds (variant, width, height, seconds_per_second, samples, updated_at) VALUES ('distilled', 1280, 704, 20.0, 1, ?)", (NOW,))
-    insert(db, "INSERT INTO video_speeds (variant, width, height, seconds_per_second, samples, updated_at) VALUES ('distilled', 1024, 576, 12.0, 1, ?)", (NOW,))
-    with pytest.raises(sqlite3.IntegrityError):
-        insert(db, "INSERT INTO video_speeds (variant, width, height, seconds_per_second, samples, updated_at) VALUES ('distilled', 1280, 704, 21.0, 2, ?)", (NOW,))
+def test_there_is_no_table_of_speeds(db):
+    """How long a clip takes comes from the finished runs (VideoStore.timings), so no second copy of it is kept to drift from them: the table schema 14 once had is not made."""
+    assert not [r["name"] for r in db.read_all("SELECT name FROM sqlite_master WHERE name LIKE 'video_speed%'")]

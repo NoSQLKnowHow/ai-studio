@@ -20,7 +20,7 @@ from ..storage import Storage
 from . import OFFERED_QUALITIES, QUALITIES, registry
 from .engine import VideoEngineInfo
 from .job import CLIP_NAME
-from .media import MediaError, Tools, check_output, find_tools, finish_clip, make_poster, make_thumbnail, prepare_start_picture, probe_clip
+from .media import MediaError, Tools, check_output, find_tools, finish_clip, make_poster, make_thumbnail, prepare_start_picture, probe_clip, sync_note
 from .store import VideoStore
 
 LICENCE_KEY = "video_licence"  # the one row of `meta` that holds the acknowledgement (DESIGN.md §46.7): there is no setting, default or header that makes one
@@ -66,8 +66,12 @@ class VideoService:
         run's `model_id` starts with the engine's own."""
         return self.store.timings(f"{self.info().model_id} · ", self.TIMINGS_LIMIT)
 
+    def forget_tools(self) -> None:
+        """Look for ffmpeg and ffprobe again at the next ask (the check-again button, DESIGN.md §46.8): a program installed or made runnable since the start-up check is then found."""
+        self._tools = None
+
     def tools(self) -> Tools:
-        """Whether ffmpeg and ffprobe can be run here: looked for once and the answer kept, so asking costs nothing (a program that is installed later needs a restart, as for Speech)."""
+        """Whether ffmpeg and ffprobe can be run here: looked for once and the answer kept, so asking costs nothing (until `forget_tools`: the check-again button)."""
         if self._tools is None:
             self._tools = find_tools(self.settings.video_ffmpeg, self.settings.video_ffprobe)
         return self._tools
@@ -181,6 +185,8 @@ class VideoService:
         note = None
         if options.get("keep_sound", True) and not made.has_audio:
             note = "This clip has no sound track."
+        elif made.has_audio:  # a sound that stops early or runs on is told (a few ms either way is how the file is made, and is not)
+            note = sync_note(made)
         now = utcnow()
         video_id = secrets.token_hex(16)
         inputs = self.db.inputs_for_runs([run_id])[run_id]

@@ -10,7 +10,7 @@ number ("section 34 (f)"), and so does the numbered list at the end. A new secti
 numbered ones, whatever release it belongs to.
 
 **How to use it.** **Part 1** (sections 1 to 13) is the first run: clone, build, start, make a first image, measure
-the memory. Do it once, in order. **Part 2** (sections 14 to 38) is one section per release: after an update, do the
+the memory. Do it once, in order. **Part 2** (sections 14 to 39) is one section per release: after an update, do the
 sections for the releases you have not checked yet. Run everything on the Spark, as your normal user (not `sudo`,
 not root), in a terminal or over SSH. For where the project itself stands (what is built, what is only specified),
 read "Status at a glance" at the top of `docs/DESIGN.md`.
@@ -21,7 +21,7 @@ read "Status at a glance" at the top of `docs/DESIGN.md`.
 ### Status of each section
 
 The status column is only what you told me: on 2026-11-17 sections 1 to 36 you had tried; section 37 you have run in part (2026-11-19 to
-11-23, below), and section 38 has not been run. It records no results; the numbers you measure are the ones the "What to send back" list at the end asks for.
+11-23, below), and sections 38 and 39 have not been run. It records no results; the numbers you measure are the ones the "What to send back" list at the end asks for.
 
 | § | Section | Release | What it checks | Status |
 |---|---|---|---|---|
@@ -63,6 +63,7 @@ The status column is only what you told me: on 2026-11-17 sections 1 to 36 you h
 | 36 | Search and tags across history | 1.26 | search, filters, Suggest with your Ollama; schema 13 | Tried by you (your word, 2026-11-17) |
 | 37 | LTX-2.5 on your Spark: the experiment before the Video tab | 1.27 | whether LTX-2.5 runs here, how long a clip can be | Partly run by you (2026-11-19 to 11-20): a to d done, e first-frame run made and judged "it looks fine" (2026-11-23), f to i and the seed/chunked script not yet run |
 | 38 | Vector quality: thin lines are kept and widened | 1.23 | the Vector clean-up keeps thin lines | Not yet run (added 2026-11-17) |
+| 39 | The Video tab, through the studio, on your Spark | 1.27 | the two settings; the `Video:` check and the tab's words at each step; a 5 s clip, image to video, Cancel, the estimate, memory next to the other models, backup | Not yet run (added 2026-11-24) |
 
 **Keeping this file current.** When a release adds a section, give it the next unused number (do not insert it in
 the middle and do not renumber), add a row for it to the table above with the release and "Not yet run", and add its
@@ -109,10 +110,14 @@ next to its line in `.env.example`. Vector has no setting in `.env`: its options
 | `STUDIO_SPEECH_ENGINES` | empty (all four) | Which voice engines to offer, as a list of ids: `qwen3-tts`, `voxtral`, `kokoro`, `piper` | section 31 |
 | `SPEECH_VOXTRAL` | 0 | Set to 1 for a build that includes Voxtral's server (large, optional): `SPEECH_VOXTRAL=1 docker compose build` | section 31 |
 | `STUDIO_SPEECH_GPU_FRACTION` | 0.2 | The share of the GPU's memory that Voxtral's server may take (0.05 to 0.9) | section 31 (j) |
+| `STUDIO_VIDEO_LTX_DIR` | empty | **Video (1.27).** Your `LTX-2` clone on the Spark, with its `.venv`: `/home/YOU/ltx-experiment/LTX-2` (`YOU` is your user name). Shared into the container read-only at the same path. Empty: the Video tab says nothing is set up | section 39 (a) |
+| `STUDIO_VIDEO_MODELS_DIR` | empty | The folder that holds `diffusion_models`, `text_encoders`, `vae`, `latent_upscale_models` and `model_patches`: `/home/YOU/ltx-experiment/models`. Shared read-only; nothing is downloaded | section 39 (a) |
+| `STUDIO_VIDEO_MIN_FREE_GB` | 60 | Refuse a clip unless this many GB are free (the measured peak for 30 s is 55.6 GB, and 4 is added). 0 = no check | section 39 (i) |
+| `STUDIO_VIDEO_MAX_SECONDS` | 30 | The longest clip the form offers | section 39 (e) |
 
 `compose.yaml` passes each of these to the container by name, except the ones compose itself uses (`STUDIO_UID`, `STUDIO_GID`,
 `STUDIO_BIND`, `STUDIO_PORT`, `HF_CACHE_DIR`, `NGC_TAG`, `SPEECH_VOXTRAL`), which shape how the container is built, run or published.
-Sections 14 to 38 name a few more where they use them (`STUDIO_MAX_INPUT_IMAGES`, `STUDIO_EDIT_WARN_UNITS`, `STUDIO_DRAFT_SIZE`,
+Sections 14 to 39 name a few more where they use them (`STUDIO_MAX_INPUT_IMAGES`, `STUDIO_EDIT_WARN_UNITS`, `STUDIO_DRAFT_SIZE`,
 `STUDIO_VARIATIONS_FROM_PICTURE`, `STUDIO_TAG_SUGGESTIONS` and others).
 
 ---
@@ -1289,7 +1294,7 @@ When this section was written it had been tried in unit tests, against a fake Ol
 
 ## 37. LTX-2.5 on your Spark: the experiment before the Video tab (new in 1.27)
 
-**Nothing of the Video tab is built.** There is no tab, no route and no database change in this version of the studio; what you have is a design (`DESIGN.md` §46) that **cannot be settled until the model itself has been measured on your machine.** So this section is a measurement of LTX-2.5 **by itself, outside the studio**, in a folder of its own, and what you send back decides the design: whether one clip can be about 30 seconds long in one pass (design A), or whether a long clip has to be several shorter clips chained and stitched (design B), or neither (`DESIGN.md` §46.5). **I am not telling you it will work.** Lightricks' model card does not say whether the model runs on a DGX Spark (arm64), how much memory it needs, how long a clip it can make, or how large its files are; every one of those was an **UNKNOWN** that this section turns into a number or a word.
+**When this section was written nothing of the Video tab was built** (it is built now, in 1.27: section 39 runs it; this section stays what it was, the measurement of the model by itself, outside the studio). There was no tab, no route and no database change; what you had was a design (`DESIGN.md` §46) that **could not be settled until the model itself had been measured on your machine.** So this section is a measurement of LTX-2.5 **by itself, outside the studio**, in a folder of its own, and what you send back decides the design: whether one clip can be about 30 seconds long in one pass (design A), or whether a long clip has to be several shorter clips chained and stitched (design B), or neither (`DESIGN.md` §46.5). **I am not telling you it will work.** Lightricks' model card does not say whether the model runs on a DGX Spark (arm64), how much memory it needs, how long a clip it can make, or how large its files are; every one of those was an **UNKNOWN** that this section turns into a number or a word.
 
 **Status (2026-11-23): you have run most of it, and the commands below are now the ones that really worked.** Each lettered step ends with a line *Run by you* or *Not yet run* saying what was done; the numbers are in `DESIGN.md` §46.18 and are not repeated here. **Done:** (a), (b) warm, (c), (d) the three lengths, (e) the first-frame clip. **Not yet run:** (f), (g), (h) with speech, (i), (k) (`step4b.sh`), strength 0.6 and start-plus-end in (e), the options of (d), a cold load. **No result is claimed here for a step marked *Not yet run*.**
 
@@ -1562,6 +1567,93 @@ note (it was cleaned up as `drop`).
 `thicken` and `drop` you prefer and the two `svg_bytes`; from (d) the notes and your verdict at 0.15, 1 and 3 mm; from (e) the tracing seconds; from (f) what the laser
 programs showed; and anything that did not match "Good".
 
+## 39. The Video tab, through the studio, on your Spark (new in 1.27)
+
+**This is the first time the Video tab meets your Spark.** When this section was written the tab had been tried in unit tests, in a real browser with a **fake engine** (it writes a real MP4 with sound, and speaks the real program's protocol), and with a stand-in for the LTX-2 folder; **no clip has been made through the studio with the real LTX-2.5, and the real program has not been started from inside the studio's container.** The experiment of section 37 is what you ran by hand; this section is the same program, run by the studio. Do the steps in order: each says what the tab and `check_image` should say, so that when one fails you know which one. `docs/DESIGN.md` §46.19 says what was built and what was not.
+
+**What you need first:** the LTX-2 folder and the model files from section 37 (a) to (c) (`~/ltx-experiment/LTX-2` with its `.venv`, made by `uv sync`, and `~/ltx-experiment/models` with `diffusion_models`, `text_encoders`, `vae`, `latent_upscale_models` and `model_patches`), about **60 GB of free memory** (the studio checks, and says so if not), and the studio's other models **not** loaded for the first clip (step (g) is the one that tries them together). **Nothing is downloaded.**
+
+**a) The two settings.** Put these two lines in `.env` (they are in `.env.example`, commented out; **replace `YOU` with your user name and write the full path, not `~`**, which a `.env` file does not expand; the command under them prints both lines with your real home folder):
+
+```
+STUDIO_VIDEO_LTX_DIR=/home/YOU/ltx-experiment/LTX-2
+STUDIO_VIDEO_MODELS_DIR=/home/YOU/ltx-experiment/models
+```
+
+To get them with your real home folder, run this and copy the two lines it prints into `.env` (replacing any `STUDIO_VIDEO_LTX_DIR=` and `STUDIO_VIDEO_MODELS_DIR=` lines already there):
+
+```bash
+printf 'STUDIO_VIDEO_LTX_DIR=%s\nSTUDIO_VIDEO_MODELS_DIR=%s\n' "$HOME/ltx-experiment/LTX-2" "$HOME/ltx-experiment/models"
+```
+
+Check what the container will see before you build:
+
+```bash
+readlink -f ~/ltx-experiment/LTX-2/.venv/bin/python        # Good: /usr/bin/python3.12 or /usr/bin/python3: the system Python, which the container has too
+ls -ln ~/ltx-experiment/LTX-2/.venv/bin/python ~/ltx-experiment/models   # the owner's numbers, and whether "others" can read and enter: r-x
+id -u; id -g                                                # the container runs as STUDIO_UID:STUDIO_GID (section 4): the studio must be able to read both folders
+```
+
+**Good:** the link ends at a system Python (**not** under `~/.local/share/uv`, which the container does not have: the tab says so, step (c)), and the studio's user can read both folders. If not, `chmod -R a+rX` on the folder, or set `STUDIO_UID` and `STUDIO_GID` to the folder's owner. **Write down** the output of the three commands.
+
+**b) Rebuild and start.**
+
+```bash
+docker compose up -d --build        # --build, so that compose.yaml's two read-only mounts and the Video pieces are in the image
+docker compose config | grep -B1 -A3 ltx-experiment     # Good: the two folders, each as "source", "target" (the SAME path) and read_only: true
+docker compose logs studio | grep -i video              # the start-up check's line (it is run once and remembered)
+docker compose exec studio python /app/docker/check_image.py | grep Video     # the same check, now with the folders in place
+```
+
+**What the `Video:` lines should say, in order** (this is the build's own self-check run in the running container; in the build itself nothing is mounted, so the build prints *no program is set up in this build*, which is fine and **not** a failure):
+
+1. `Video: measured working on the Spark (2026-11-19/20): LTX-2 commit daa6b16, ... torch 2.13.0+cu132 (CUDA 13.2), ... natten 0.21.7+torch2130cu132`: what was measured. Nothing to check.
+2. `Video: this image's own PyTorch is 2.9.0a0+145a3a7bda.nv25.10 (CUDA 13.0), which the program cannot use: it runs in an environment of its own (...)`. Nothing to check.
+3. `Video: /usr/bin/python3 is Python 3.12.3 (as measured: the host's environment can run here)`. **If it says another version**, the host's environment may not run in the container: paste that line.
+4. `Video: the LTX program can be started: Python 3.12.3, torch 2.13.0+cu132 (CUDA 13.2), ...; as measured`. **Good:** `as measured`, or a **difference** in a package (shown, not refused: for example `natten not found`). **Not good:** `Video: not available here: ...`, with the reason and what to do; **paste the whole line** (step (c) lists the messages).
+5. `Video: all five model files were found in /home/YOU/ltx-experiment/models` (with your own path).
+
+(An exec'd check runs without a GPU being demanded; whether PyTorch sees the GPU is reported, and `Video: ... cannot see the GPU` is the one to take seriously.)
+
+**c) What the tab says at each step, when something is wrong.** Open the **Video** tab. **Good:** a form (if it asks you to acknowledge the licence first, step (d)). **If not**, the tab says **Video isn't available on this server**, gives the reason, then what to do, and has a **Check again** button; put it right on the Spark and press **Check again**: the studio looks again (at most once in 10 seconds, and not while a clip is being made; it says so) **without restarting the container**. A line you changed in `.env` needs `docker compose up -d` first. The steps are checked in this order and the first that fails is the one shown; **the words of the reason are**:
+
+| Step | The tab says (the start of the reason) | What to do |
+|---|---|---|
+| ffmpeg | `ffmpeg is not installed, and a clip cannot be read or made playable without it.` | the image has it; it means a broken build: paste the line |
+| Program not set up | `Video is not set up: no program is named to make clips.` (or `no LTX-2 folder is named, and the program is not built into this image`) | the two lines of (a), then `docker compose up -d` |
+| LTX-2 folder | `The LTX-2 folder is not there: <path>.` / `... is not a folder` / `has no Python environment: <path>/.venv/bin/python is not there` / `has no packages/ folder` | the path in `.env` must be the clone itself; `uv sync` in it |
+| Python link | `The LTX-2 environment's Python is a link to <path>, which is not in the container.` | make the environment with the system Python: `uv sync --python 3.12` (on the host) |
+| Permissions | `The studio cannot read the LTX-2 folder <path>: it runs as <user> (uid, gid).` / `cannot run the LTX-2 environment's Python` | `chmod -R a+rX`, or `STUDIO_UID`/`STUDIO_GID`, as the hint says |
+| Model files | `The folder of model files is not set.` / `is not there: <path>` / `holds none of diffusion_models, text_encoders, vae or latent_upscale_models: <path> (it holds: ...)` / `No file for the <text encoder, sound VAE, ...> was found in <folder> (it holds: ...)` / `More than one file could be the distilled model in <folder>: a, b` / `cannot read the <file>` | the folder must **contain** those four folders; name the file in `STUDIO_VIDEO_TRANSFORMER` (or `_TEXT_ENCODER`, `_VIDEO_VAE`, `_AUDIO_VAE`, `_UPSAMPLER`) if the choice is not clear; an "Also wrong:" line lists the rest |
+| Python of the program | `The video program's Python is 3.x; LTX-2 needs 3.12 or newer.` / `PyTorch does not import in the video program's environment (<error>)` / `The LTX-2 program (ltx_pipelines) is not installed in that environment.` / `does not import (<error>)` | `uv sync` in the LTX-2 folder on the host, then **Check again** |
+| GPU | `PyTorch in the video program's environment cannot see the GPU.` | `docker exec ai-image-studio nvidia-smi` must show the GB10 (section 2); the hint asks for `docker exec ai-image-studio env \| grep -i -E 'cuda\|triton\|ld_library'`: **paste it** |
+| It did not answer | `The video program's Python did not answer: <what it printed>` | run the command in the hint by hand and paste what it prints |
+
+**What to paste back for any of these:** the tab's reason and hint word for word (a screenshot is fine), the `Video:` lines of (b), and the output of `docker exec ai-image-studio env | grep -i -E 'cuda|triton|ld_library|python|torch'`. **Write down** which step first failed and whether **Check again** moved it on after you put it right.
+
+**d) The licence.** The first time, the tab shows the licence's summary (the model card's words, with a revision) and a button to acknowledge it; **the form is switched off until you do**. **Good:** acknowledge it; the form opens; reload the page: it **stays** acknowledged (it is stored in the database with the licence's revision, never in a setting). **Write down** whether the summary matches what you read on the model's page: the binding text has not been read by whoever wrote the summary.
+
+**e) A first clip: 5 seconds from text.** In **What happens** write something plain, in **What you hear** a sound (for example *a quiet room, rain on the window*), choose **5 s**, leave the size at 1280×704, the seed blank, and press **Make clip**. **Good, in order:** the card is queued and then working; the line under the form before you pressed said **About N min** with **the table's source named** (*measured on one Spark setup, 2026-11-19/20 (no natten)*); the card then says, one after another, *Starting the video program*, *Reading your words*, *Making the picture and sound (first pass): step n of 8*, *Getting ready to sharpen*, *Sharpening to full size (second pass): step n of 3*, *Decoding the picture and sound*, *Writing the file*, with the seconds so far and about how long to go; the clip then appears, plays **with its sound**, shows the facts line (*5.0 s · 1280×704 · 24 fps · Draft · with sound · seed N · 3 min 12 s*) and a download. **Write down:** the seconds it took (the card's last number), whether every stage name appeared, whether the estimate's *to go* was near the truth, and `docker compose logs studio | grep -i video | tail -30`. **If it fails**, the card says why and gives a hint: *the program stopped*, *not enough memory*, *out of memory*, *the disk is full*, *the licence*: **paste the card's words and the log's last 60 lines of the clip's run**. If the card sits on *Starting the video program* and after two minutes says **Working: the program does not say which step it is on**, the program is running but its lines were not recognised: **paste the log** (this is the one case where the studio cannot tell progress from silence).
+  **Then check the file itself.** Open the clip on the Spark and **on your phone** (the tab's download, or the page itself over the LAN): **Good:** it plays, the sound is there and in step with the picture, and you can seek in it. `ffprobe -v error -show_entries stream=codec_name,width,height,avg_frame_rate,duration data/video/*/clip.mp4` should say H.264 1280×704 24 fps and AAC stereo, picture and sound within about 0.1 s; a longer gap shows as a **note on the card** (*The sound and the picture differ by N ms: the sound stops early.*).
+
+**f) Image to video.** Press **Animate this** on a picture of Images (or switch the form to **Image to video** and choose a picture). **Good:** the picture becomes the **start picture**, the size follows its shape (1280×704 for a 16:9 picture), a preview shows **what is cut off** (the picture is cropped to the clip's shape from the middle, never stretched), and a picture with transparency says it is **laid on white**. Make a 5 s clip. **Good:** it starts from the picture; it takes about as long as (e). **Write down** the seconds and whether the first frame is your picture; in section 37 the same thing "looks fine".
+
+**g) Cancel in the middle.** Start a 10 s clip, wait until the card says *Making the picture and sound (first pass)*, press **Cancel**. **Good:** the card says *Stopping the video program…* and then **Canceled** within a few seconds (the studio ends the program and everything it started, not just the first process); `nvidia-smi` and `free -g` show the memory **back**; `ls data/video` has nothing left of that clip; the next clip starts normally. **Write down:** the seconds from pressing Cancel to *Canceled*, `free -g` before the clip, in the middle of it and after Cancel, and `ps aux | grep -i ltx_pipelines` in the container (`docker compose exec studio ps aux | grep ltx_pipelines`), which should print **nothing** after Cancel.
+
+**h) The estimate against reality.** After (e), (f) and a 10 s clip, look at the line under the form for 5 s and 10 s. **Good:** it names **the clips made on this machine** (*About 4 min, from the 2 clips of about 5 s made on this machine*) and is near what the clips took; before any clip it named the table and said it was one setup's, **without natten**. The table was measured without natten; with natten every clip took about 30 s longer (a fixed part), so **the first estimate may be 30 s too small**: **write down** by how much, and the estimate after the second and the fifth clip.
+
+**i) Memory next to the other models.** With the **image model loaded** (make a picture first) press **Make clip**. **Good:** only one model is in memory, so the studio swaps: the image model goes and the video program runs (the model pill names the video model while the clip is made); the next picture loads the image model again (a swap each time). Then, with the **free memory at about 60 GB or less** (`free -g`, section 3, with another model server or Ollama holding some), press **Make clip**. **Good:** it is refused at once with the numbers (*Not enough free memory to load the video model: N GB available, 60 GB required (STUDIO_VIDEO_MIN_FREE_GB).*) and what to do. **Write down** the pill's words, the seconds the swap took each way, and the memory numbers.
+
+**j) The folders and the files.** `ls -la data/video` and `du -sh data/video data/video-cache`. **Good:** each clip is in its own folder with `clip.mp4`, `poster.jpg` and a thumbnail; the program's caches are in `data/video-cache` (not in the LTX-2 folder, which is read-only); `ls -l data/studio.sqlite*` shows **`studio.sqlite.before-schema-14`** next to the database after the first start. **Keep**, a **tag**, **Delete** (to the bin) and **Restore** work on a clip as on a picture; **search** finds a clip by its words. **A clip has no captions**: the viewer says why.
+
+**k) Backup.** `scripts/backup.sh --no-image --no-model --dry-run ~/backups`. **Good:** the summary names **the video clips** and what they weigh, says that the unfinished clips' work folders and `data/video-cache` are left out, and says **the video model files are your own and are not copied**: **back up `~/ltx-experiment/models` and the LTX-2 folder yourself.**
+
+**l) Your phone.** On the phone (or a window 360 px wide) open the Video tab, make nothing, and look at the form, a card and the viewer. **Good:** nothing runs off the screen; the video plays; the controls are reachable with a thumb. **Write down** what did not fit, with a screenshot.
+
+**m) The second way (optional, a long build; not tried).** Only if you want the program **inside the image** and need not the host's folder: `VIDEO_LTX=1 docker compose build` (the commit pinned in the Dockerfile is the one measured, `daa6b16f...`; the build runs `uv sync --frozen`, and downloads several GB), leave `STUDIO_VIDEO_LTX_DIR` empty, and set `STUDIO_VIDEO_MODELS_DIR` as before. **Good:** the same steps pass. **Write down:** whether the build finished, how long it took, and the `Video:` lines.
+
+**Send back:** from (a) the three commands' output; from (b) the `Video:` lines; from (c) the first failing step's words, the `env` lines and whether **Check again** worked; from (d) whether the summary matches the licence; from (e) the seconds, the stage names, the estimate against the truth, the `ffprobe` line and whether it played on the phone, with any failure's card and log; from (f) the seconds and whether the first frame is your picture; from (g) the seconds to *Canceled*, the memory numbers and the `ps` output; from (h) the estimates; from (i) the pill's words, the swap seconds and the memory numbers; from (j) the `ls`/`du` lines; from (k) the summary's words; from (l) a screenshot of anything that did not fit; from (m) the build's result.
+
 ## Troubleshooting
 
 This is the table the steps and sections point to ("see Troubleshooting"). It is at the end because it serves every part of the file.
@@ -1577,6 +1669,7 @@ This is the table the steps and sections point to ("see Troubleshooting"). It is
 | `no kernels for the Spark's GPU (GB10)` | Try a newer NVIDIA PyTorch release: set `NGC_TAG` in `.env` (for example `25.11-py3`), then `docker compose build`. |
 | `diffusers is installed, but QwenImage21Pipeline is only a placeholder` | transformers didn't import. `docker compose exec studio python -c 'import transformers'` shows why; send me the output. |
 | A tab or an engine says "not installed" or "unavailable", with a reason | The build's `check_image: Enlarge:`, `Vector:` and `Speech:` lines say the same thing (they are notes, never a failed build). Sections 22, 28 and 31 (a) say what to send back. |
+| The Video tab says **Video isn't available on this server**, or **Check again** does not clear it | The reason and the hint on the tab name the step that failed; section 39 (c) lists every message and what to do, and what to paste back (the `Video:` lines of `docker compose exec studio python /app/docker/check_image.py` and the `env` lines it names). |
 | Download fails with 401/403 or "gated" | Accept the model's terms on Hugging Face if it asks, then set `HF_TOKEN` in `.env` and `docker compose up -d`. |
 | `Not enough free memory to load the model` | Another model server on the Spark probably holds the memory (a vLLM container, or a model loaded in Ollama): lower its `--gpu-memory-utilization` or stop it (for Ollama, `ollama stop <model>`, or **Unload from memory** on the Prompt builder tab), then flush the page cache: `sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches'`. Then **Retry**. |
 | Out of memory while loading or generating | Same as above; also try a smaller size or fewer images per click. |
@@ -1633,6 +1726,10 @@ Paste these into the chat (no tokens or passwords; check before pasting). The nu
 28. From section 35 (audiobook polish for Speech): the `check_image:` ffmpeg line and the `ls -l data/studio.sqlite*` line, the table of which respellings worked in which engine from (b), your verdict on the voice changes and on the pause between speakers and the times from (d), any false alarm from (e), whether the chapter times matched by ear in (f), the M4B's build time and size and, for each player, whether the chapters and the resume worked from (g), and a screenshot of anything on the phone that did not fit.
 29. From section 36 (search and tags): the `ls -l data/studio.sqlite*` line and the indexing line from the log, the runs that were not found in (a), the seconds and your verdict on the tags and the memory numbers from (b), the three greyed messages from (c), the time zones and any run on the wrong side of midnight from (f), a screenshot of anything on the phone that did not fit, and anything that did not match "Good".
 30. From section 37 (LTX-2.5, the experiment before the Video tab): **already sent (2026-11-19 to 11-23): (a), (b) warm, (c), the lengths of (d) and your verdicts, and the first-frame clip of (e) with "it looks fine"**. **Still to send:** the Python version `uv sync` chose, a cold load time (b), what `--quantization fp8-cast`, `nvfp4-prequant`, `--offload cpu` and the dev checkpoint did (d, if you run them), your comparison of the first frame with your picture, strength 0.6 and the end frame (e), what you saw and heard at each join and whether the third link was worse (f), the lengths the duration head chose (g), the audio format and your verdict on speech, ambience, music and the voice across seeds (h), the `free -g` lines and what happened next to the studio and Ollama (i), and the three clips of (k) (`step4b.sh`: seed 11 at 20 and 30 s, and 30 s with `--chunked`) with your verdicts and the `Plan: N chunks` line, and the CSV files if you want the curves read.
+
+**Part 2, release 1.27 (item 32, added 2026-11-24)**
+
+32. From section 39 (the Video tab through the studio): the three commands of (a), the `Video:` lines of (b) (and `docker compose config | grep -B1 -A3 ltx-experiment`), the first failing step's words from (c) with the `env` lines and whether **Check again** moved it on, whether the licence summary of (d) matches the model's page, from (e) the seconds, whether each stage name appeared, the estimate against the truth, the `ffprobe` line and whether the clip played with sound on the phone (and the card's words and the log's last 60 lines if it failed), from (f) the seconds and whether the first frame was your picture, from (g) the seconds from Cancel to *Canceled*, the memory numbers and the `ps` output, from (h) the estimates after the first, second and fifth clip, from (i) the pill's words, the swap seconds and the memory numbers, from (j) the `ls` and `du` lines and the `before-schema-14` file, from (k) the backup summary's words, from (l) a screenshot of anything that did not fit, and from (m) the build's result if you tried it.
 
 **Part 2, release 1.23 (item 31, added 2026-11-17)**
 

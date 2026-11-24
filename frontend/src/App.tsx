@@ -620,7 +620,7 @@ export default function App() {
     if (run.deleted_at !== null) return refuse("This run is in the bin. Restore it first.");
     setAnimate((current) => ({
       seq: (current?.seq ?? 0) + 1, prompt: run.prompt,
-      picture: { ref: { image_id: image.imageId }, thumbUrl: image.thumbUrl, width: image.width, height: image.height, label: image.name },
+      picture: { ref: { image_id: image.imageId }, thumbUrl: image.thumbUrl, width: image.width, height: image.height, label: image.name, hasAlpha: image.hasAlpha },
     }));
     setLightbox(null);
     changeTab("video");

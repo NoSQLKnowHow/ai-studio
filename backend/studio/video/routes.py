@@ -90,6 +90,17 @@ def add_routes(app: FastAPI) -> None:
             return answer
         return FileResponse(answer[2], media_type="image/webp", headers={"Cache-Control": IMMUTABLE})
 
+    @app.post("/api/video/check", status_code=202)
+    async def check_video_again(request: Request) -> Any:
+        """Run the video engine's start-up check again (DESIGN.md §46.8): for a person who has put a folder, a permission or a program right and must not have to restart the container.
+        Answers at once (`202`, `started`); the outcome arrives as `capabilities.updated` and in `capabilities.video`. Rate-limited (`429 video_check_too_soon`), and refused while a clip
+        is being made (`409 video_busy`); a check that is under way is not started twice (`started: false`)."""
+        jobs = request.app.state.jobs
+        try:
+            return jobs.recheck_video()
+        except VideoRefused as exc:
+            return _error(exc.status, exc.message, exc.code, exc.hint)
+
     @app.get("/api/video/licence")
     async def get_licence(request: Request) -> Any:
         return request.app.state.jobs.video.licence()

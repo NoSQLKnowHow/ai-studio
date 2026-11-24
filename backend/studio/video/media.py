@@ -70,6 +70,7 @@ class ClipFacts:
     audio_channels: Optional[int]
     audio_rate: Optional[int]
     bytes: int
+    audio_seconds: Optional[float] = None  # the sound track's own length, which is the file's to say (the real program's is a few ms shorter than its picture)
 
     @property
     def playable_everywhere(self) -> bool:
@@ -117,7 +118,7 @@ def probe_clip(ffprobe: str, path: Path) -> ClipFacts:
         video_codec=str(video.get("codec_name") or ""), pixel_format=str(video.get("pix_fmt") or ""),
         has_audio=audio is not None, audio_codec=str(audio.get("codec_name")) if audio else None,
         audio_channels=_int(audio.get("channels")) if audio else None, audio_rate=_int(audio.get("sample_rate")) if audio else None,
-        bytes=path.stat().st_size,
+        bytes=path.stat().st_size, audio_seconds=(_float(audio.get("duration")) or None) if audio else None,
     )
 
 
@@ -142,6 +143,21 @@ def _rate(value: Any) -> Optional[float]:
     except (ValueError, ZeroDivisionError):
         return None
     return float(rate) if rate > 0 else None
+
+
+# How far the sound's length may be from the picture's before the clip gets a note (DESIGN.md §46.13 criterion 487). The real program's sound is 31 ms short at 5 s and at 30 s, and 45 ms at
+# the tiny size (MEASURED, 2026-11-19/20): that is how the file is made, and is not mentioned. A difference above this is a sound that stops early or runs on, which a person should know.
+SYNC_TOLERANCE_MS = 100
+
+
+def sync_note(facts: ClipFacts) -> Optional[str]:
+    """A sentence for a clip whose sound and picture differ in length by more than `SYNC_TOLERANCE_MS`, or None (no sound, no length known, or a difference that is how the file is made)."""
+    if not facts.has_audio or not facts.audio_seconds or not facts.seconds:
+        return None
+    difference = round(abs(facts.audio_seconds - facts.seconds) * 1000)
+    if difference <= SYNC_TOLERANCE_MS:
+        return None
+    return f"The sound and the picture differ by {difference} ms: the sound {'stops early' if facts.audio_seconds < facts.seconds else 'runs on after the picture'}."
 
 
 def check_output(facts: ClipFacts, *, width: int, height: int, frames: int, fps: int, tolerance: float = 0.05) -> Optional[str]:

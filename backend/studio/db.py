@@ -27,7 +27,7 @@ from .projects import name_key as project_name_key
 from .runfilter import KINDS, RunFilter
 from .runsearch import FACETS_LISTED, RUN_ANNOTATION_SCHEMA, RUN_HEIGHT, RUN_SEARCH_SQL, RUN_WIDTH, TAGS_LISTED, index_fields
 
-# 14: mode 'video' (the runs table is rebuilt once more, as at 3, 7 and 10) and the Video tab's tables, videos, video_segments and video_speeds (§46.9);
+# 14: mode 'video' (the runs table is rebuilt once more, as at 3, 7 and 10) and the Video tab's tables, videos and video_segments (§46.9);
 # 13: the tables of tags, notes and the word index over runs (run_tags, run_notes, run_search; DESIGN.md §45.7), added to the end, so no run is touched; 12: speech_pieces.speaker and the speech_pronunciations table (§44.6);
 # 11: runs.variation_json and runs.family_id (§43.4); 10: mode 'speech', runs.queue_key and runs.hidden, and the Speech tab's tables (§38.8); 9: the Prompt builder's tables and runs.prompt_id, runs.prompt_version (§37.4); 8: vectors.deleted_at, for a single version of a Vector run in the bin (DESIGN.md §35.4); 7: mode 'vector' and the vectors table (§31.12.6); 6: images.deleted_at and tracks.deleted_at, for a single picture in the bin (§33.3);
 # 5: the projects table and runs.project_id, for project folders (§32.4); 4: runs have deleted_at and restored_at, for the bin (§30);

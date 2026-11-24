@@ -66,7 +66,9 @@ test("Images and Music tabs: the arrow keys switch, only the open one is shown, 
   await musicTab(page).focus();
   await page.keyboard.press("ArrowLeft");
   await expect(imagesTab(page)).toHaveAttribute("aria-selected", "true");
-  await page.keyboard.press("End"); // the last tab is Speech since 1.20 (DESIGN.md §38.2), after the Prompt builder (since 1.19, §37.2) and Vector (since 1.17, §31.12.8)
+  await page.keyboard.press("End"); // the last tab is Video since 1.27 (DESIGN.md §46.11), after Speech (since 1.20, §38.2), the Prompt builder (since 1.19, §37.2) and Vector (since 1.17, §31.12.8)
+  await expect(page.getByRole("tab", { name: "Video" })).toHaveAttribute("aria-selected", "true");
+  await page.keyboard.press("ArrowLeft");
   await expect(page.getByRole("tab", { name: "Speech" })).toHaveAttribute("aria-selected", "true");
   await page.keyboard.press("ArrowLeft");
   await expect(page.getByRole("tab", { name: "Prompt builder" })).toHaveAttribute("aria-selected", "true");
@@ -74,7 +76,7 @@ test("Images and Music tabs: the arrow keys switch, only the open one is shown, 
   await expect(page.getByRole("tab", { name: "Vector" })).toHaveAttribute("aria-selected", "true");
   await page.keyboard.press("Home");
   await page.keyboard.press("ArrowLeft"); // and the bar wraps round, from the first back to the last
-  await expect(page.getByRole("tab", { name: "Speech" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("tab", { name: "Video" })).toHaveAttribute("aria-selected", "true");
   await page.keyboard.press("Home");
   await expect(imagesTab(page)).toHaveAttribute("aria-selected", "true");
 });
